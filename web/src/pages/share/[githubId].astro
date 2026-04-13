@@ -4,13 +4,15 @@ export const prerender = false;
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import ReportScreen from "../../components/ReportScreen.astro";
 import { getAppUrl } from "../../lib/auth";
-import { getLeaderboardProfile, hasDatabaseBinding } from "../../lib/db";
+import { getLeaderboardProfileByGithubId, hasDatabaseBinding } from "../../lib/db";
 import { getReportHeadlineHtml, getReportTheme, getSbaiStatus } from "../../lib/report";
-import { buildTwitterIntentUrl, getSharePath } from "../../lib/share";
+import { buildShareDescription, buildShareTitle, buildTwitterIntentUrl, getShareImagePath, getSharePath } from "../../lib/share";
 
-const login = Astro.params.login || "";
+const githubId = Number(Astro.params.githubId || "");
 const databaseReady = hasDatabaseBinding();
-const profile = databaseReady && login ? await getLeaderboardProfile(login) : null;
+const profile = databaseReady && Number.isInteger(githubId) && githubId > 0
+  ? await getLeaderboardProfileByGithubId(githubId)
+  : null;
 
 if (!profile) {
   Astro.response.status = 404;
@@ -19,16 +21,14 @@ if (!profile) {
 const report = profile?.report;
 const theme = getReportTheme(report?.sbai ?? 0);
 const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
-const title = profile ? `${profile.displayName} - maleme leaderboard` : "maleme leaderboard";
-const description = profile ? `${profile.displayName} 的 maleme 词频报告` : "maleme leaderboard";
+const appUrl = getAppUrl(Astro.url);
+const sharePath = profile ? getSharePath(profile.githubId) : "/";
+const shareUrl = new URL(sharePath, appUrl).toString();
+const shareImageUrl = profile ? new URL(getShareImagePath(profile.githubId), appUrl).toString() : "";
+const title = profile ? `${buildShareTitle(profile)} | maleme leaderboard` : "maleme leaderboard";
+const description = profile ? buildShareDescription(profile) : "maleme leaderboard";
 const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
-const shareUrl = profile ? new URL(getSharePath(profile.githubId), getAppUrl(Astro.url)).toString() : "";
-const twitterShareUrl = profile
-  ? buildTwitterIntentUrl(
-    `${profile.displayName} 在 maleme leaderboard 排名 #${profile.rank}，SBAI ${report?.sbai.toFixed(2) ?? "0.00"}`,
-    shareUrl,
-  )
-  : "";
+const twitterShareUrl = profile ? buildTwitterIntentUrl(description, shareUrl) : "";
 const themeStyle = [
   `--bg:${theme.bg}`,
   `--bg-accent:${theme.bgAccent}`,
@@ -77,6 +77,27 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
       rel="stylesheet"
     />
     <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="maleme leaderboard" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={shareUrl} />
+    {
+      shareImageUrl && (
+        <>
+          <meta property="og:image" content={shareImageUrl} />
+          <meta property="og:image:type" content="image/svg+xml" />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta property="og:image:alt" content={description} />
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={title} />
+          <meta name="twitter:description" content={description} />
+          <meta name="twitter:image" content={shareImageUrl} />
+        </>
+      )
+    }
+    <link rel="canonical" href={shareUrl} />
   </Fragment>
 
   {
@@ -94,21 +115,7 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
       >
         <div slot="actions" class="share-actions">
           <a href="/" class="submit-button ghost-button">返回排行榜</a>
-          <a href={profile.profileUrl} target="_blank" rel="noreferrer" class="submit-button github-button">
-            <svg viewBox="0 0 16 16" aria-hidden="true" class="button-logo">
-              <path
-                fill="currentColor"
-                d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38
-                0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52
-                -.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
-                -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21
-                2.2.82a7.57 7.57 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82
-                1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01
-                2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
-              />
-            </svg>
-            <span>GitHub 主页</span>
-          </a>
+          <a href={`/u/${encodeURIComponent(profile.login)}`} class="submit-button ghost-button">完整详情</a>
           <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">分享到 Twitter</a>
           <button
             type="button"
@@ -123,8 +130,8 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
     ) : (
       <main class="missing-shell">
         <section class="surface missing-card">
-          <h1 class="missing-title">没有找到这个用户的报告</h1>
-          <p class="missing-copy">可能还没提交到 leaderboard，或者登录名已经发生变化。</p>
+          <h1 class="missing-title">没有找到这个用户的分享面板</h1>
+          <p class="missing-copy">这个用户还没有提交记录，或者分享链接对应的用户 ID 已失效。</p>
           <a href="/" class="missing-link">回到排行榜</a>
         </section>
       </main>
@@ -176,38 +183,6 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
     gap: 10px;
   }
 
-  .submit-button {
-    height: 48px;
-    border: 0;
-    border-radius: 8px;
-    padding: 0 18px;
-    font: inherit;
-    font-size: 15px;
-    font-weight: 900;
-    color: #ffffff;
-    background: linear-gradient(135deg, #ff5a5f, #ff7f50);
-    box-shadow:
-      0 16px 28px rgba(255, 90, 95, 0.24),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition:
-      transform 160ms ease,
-      box-shadow 160ms ease,
-      background 160ms ease;
-  }
-
-  .submit-button:hover,
-  .submit-button:focus-visible {
-    transform: translateY(-1px);
-    box-shadow:
-      0 18px 32px rgba(255, 90, 95, 0.3),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  }
-
   .ghost-button {
     text-decoration: none;
     display: inline-flex;
@@ -227,28 +202,6 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
     background:
       linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
       rgba(22, 14, 19, 0.82);
-  }
-
-  .github-button {
-    gap: 10px;
-    color: #f6f8fa;
-    background: linear-gradient(135deg, #24292f, #3d444d);
-    box-shadow:
-      0 16px 28px rgba(15, 23, 42, 0.3),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-  }
-
-  .github-button:hover,
-  .github-button:focus-visible {
-    box-shadow:
-      0 20px 36px rgba(15, 23, 42, 0.38),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.14);
-  }
-
-  .button-logo {
-    width: 18px;
-    height: 18px;
-    flex: 0 0 auto;
   }
 
   .twitter-button {

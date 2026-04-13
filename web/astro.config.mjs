@@ -6,6 +6,12 @@ export default defineConfig({
   adapter: cloudflare({
     remoteBindings: false,
   }),
+  image: {
+    remotePatterns: [
+      { protocol: "https", hostname: "avatars.githubusercontent.com" },
+      { protocol: "https", hostname: "github.githubassets.com" },
+    ],
+  },
   session: {
     driver: sessionDrivers.null(),
   },

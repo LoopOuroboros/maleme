@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { Image } from "astro:assets";
 import BaseLayout from "../layouts/BaseLayout.astro";
 import LeaderboardTable from "../components/LeaderboardTable.astro";
 import Podium from "../components/Podium.astro";
@@ -36,10 +37,12 @@ const stats = [
         </div>
       </div>
       <a class="repo-link" href="https://github.com/Yeuoly/maleme" target="_blank" rel="noreferrer">
-        <img
+        <Image
           src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
           alt="GitHub"
           class="repo-avatar"
+          width={42}
+          height={42}
         />
       </a>
     </header>

@@ -24,6 +24,81 @@ type LeaderboardProfileRow = LeaderboardRow & {
   submittedAt: number | null;
 };
 
+async function getLeaderboardProfileByPredicate(predicateSql: string, predicateValue: number | string) {
+  const database = getDatabase();
+  const row = await database
+    .prepare(
+      `
+        WITH ranked_entries AS (
+          SELECT
+            github_id,
+            login,
+            display_name,
+            avatar_url,
+            profile_url,
+            profanity_count,
+            tokens,
+            sbai,
+            updated_at,
+            ROW_NUMBER() OVER (
+              ORDER BY profanity_count DESC, sbai DESC, tokens DESC, updated_at ASC
+            ) AS rank
+          FROM leaderboard_entries
+        )
+        SELECT
+          ranked_entries.rank AS rank,
+          ranked_entries.github_id AS githubId,
+          ranked_entries.login AS login,
+          ranked_entries.display_name AS displayName,
+          ranked_entries.avatar_url AS avatarUrl,
+          ranked_entries.profile_url AS profileUrl,
+          ranked_entries.profanity_count AS profanityCount,
+          ranked_entries.tokens AS tokens,
+          ranked_entries.sbai AS sbai,
+          ranked_entries.updated_at AS updatedAt,
+          latest.report_payload_json AS reportPayloadJson,
+          latest.created_at AS submittedAt
+        FROM ranked_entries
+        LEFT JOIN leaderboard_submissions AS latest
+          ON latest.id = (
+            SELECT id
+            FROM leaderboard_submissions
+            WHERE github_id = ranked_entries.github_id
+            ORDER BY created_at DESC
+            LIMIT 1
+          )
+        WHERE ${predicateSql}
+      `,
+    )
+    .bind(predicateValue)
+    .first<LeaderboardProfileRow>();
+
+  if (!row) {
+    return null;
+  }
+
+  const fallback = createFallbackReportPayload({
+    profanityCount: row.profanityCount,
+    tokens: row.tokens,
+    sbai: row.sbai,
+  });
+
+  return {
+    rank: row.rank,
+    githubId: row.githubId,
+    login: row.login,
+    displayName: row.displayName,
+    avatarUrl: row.avatarUrl,
+    profileUrl: row.profileUrl,
+    profanityCount: row.profanityCount,
+    tokens: row.tokens,
+    sbai: row.sbai,
+    updatedAt: row.updatedAt,
+    submittedAt: row.submittedAt ?? row.updatedAt,
+    report: parseReportPayloadJson(row.reportPayloadJson, fallback),
+  } satisfies LeaderboardProfile;
+}
+
 function getDatabase() {
   if (!env.DB) {
     throw new Error("D1 binding DB is missing.");
@@ -118,78 +193,11 @@ export async function getViewerEntry(githubId: number) {
 }
 
 export async function getLeaderboardProfile(login: string) {
-  const database = getDatabase();
-  const row = await database
-    .prepare(
-      `
-        WITH ranked_entries AS (
-          SELECT
-            github_id,
-            login,
-            display_name,
-            avatar_url,
-            profile_url,
-            profanity_count,
-            tokens,
-            sbai,
-            updated_at,
-            ROW_NUMBER() OVER (
-              ORDER BY profanity_count DESC, sbai DESC, tokens DESC, updated_at ASC
-            ) AS rank
-          FROM leaderboard_entries
-        )
-        SELECT
-          ranked_entries.rank AS rank,
-          ranked_entries.github_id AS githubId,
-          ranked_entries.login AS login,
-          ranked_entries.display_name AS displayName,
-          ranked_entries.avatar_url AS avatarUrl,
-          ranked_entries.profile_url AS profileUrl,
-          ranked_entries.profanity_count AS profanityCount,
-          ranked_entries.tokens AS tokens,
-          ranked_entries.sbai AS sbai,
-          ranked_entries.updated_at AS updatedAt,
-          latest.report_payload_json AS reportPayloadJson,
-          latest.created_at AS submittedAt
-        FROM ranked_entries
-        LEFT JOIN leaderboard_submissions AS latest
-          ON latest.id = (
-            SELECT id
-            FROM leaderboard_submissions
-            WHERE github_id = ranked_entries.github_id
-            ORDER BY created_at DESC
-            LIMIT 1
-          )
-        WHERE ranked_entries.login = ? COLLATE NOCASE
-      `,
-    )
-    .bind(login)
-    .first<LeaderboardProfileRow>();
+  return getLeaderboardProfileByPredicate("ranked_entries.login = ? COLLATE NOCASE", login);
+}
 
-  if (!row) {
-    return null;
-  }
-
-  const fallback = createFallbackReportPayload({
-    profanityCount: row.profanityCount,
-    tokens: row.tokens,
-    sbai: row.sbai,
-  });
-
-  return {
-    rank: row.rank,
-    githubId: row.githubId,
-    login: row.login,
-    displayName: row.displayName,
-    avatarUrl: row.avatarUrl,
-    profileUrl: row.profileUrl,
-    profanityCount: row.profanityCount,
-    tokens: row.tokens,
-    sbai: row.sbai,
-    updatedAt: row.updatedAt,
-    submittedAt: row.submittedAt ?? row.updatedAt,
-    report: parseReportPayloadJson(row.reportPayloadJson, fallback),
-  } satisfies LeaderboardProfile;
+export async function getLeaderboardProfileByGithubId(githubId: number) {
+  return getLeaderboardProfileByPredicate("ranked_entries.github_id = ?", githubId);
 }
 
 export async function createPendingSubmission(payload: LeaderboardReportPayload, ttlMs: number) {
