@@ -8,11 +8,52 @@
 
 `maleme` is a local-first Rust toolkit for collecting user-authored prompt history from coding agents, extracting profanity usage signals, and producing a compact visual analytics report.
 
+The CLI is already published to npm, so you can run it directly without a global install:
+
+```bash
+npx maleme
+bunx maleme
+vpx maleme
+```
+
+## Map
+
+- [Quick Start](#quick-start)
+- [Highlights](#highlights)
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Supported Data Sources](#supported-data-sources)
+- [Profanity Lexicon](#profanity-lexicon)
+- [Report Generation](#report-generation)
+- [Development](#development)
+- [Install](#install)
+- [npm Release Flow](#npm-release-flow)
+- [Repository Metadata](#repository-metadata)
+- [Star History](#star-history)
+- [Scope](#scope)
+- [License](#license)
+
 The project is designed around three practical requirements:
 
 1. Unified ingestion of locally stored conversation history from multiple coding agents.
 2. Deterministic detection and aggregation of profanity usage across multilingual user input.
 3. Repeatable generation of a browser-friendly HTML report suitable for local review.
+
+## Quick Start
+
+Run `maleme` directly from the published npm package:
+
+```bash
+npx maleme
+bunx maleme
+vpx maleme
+```
+
+Or install it globally:
+
+```bash
+npm install -g maleme
+```
 
 ## Highlights
 
