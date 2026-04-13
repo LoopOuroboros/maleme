@@ -192,6 +192,10 @@ Current npm targets wired in this repository:
 
 The repository includes a GitHub Actions workflow at `.github/workflows/publish-npm.yml`.
 
+For the repeatable release checklist, see:
+
+- [docs/npmjs-publish-sop.md](/Users/zhsama/github/others/maleme/docs/npmjs-publish-sop.md)
+
 Release steps:
 
 1. bump `version` in `Cargo.toml`
