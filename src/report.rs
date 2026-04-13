@@ -666,7 +666,7 @@ pub fn render_report(
         <form class="submit-form" method="post" action="{submit_endpoint}">
           <input type="hidden" name="profanityCount" value="{total_profanities}">
           <input type="hidden" name="tokens" value="{total_tokens}">
-          <input type="hidden" name="sbai" value="{sbai:.2}">
+          <input type="hidden" name="sbai" value="{sbai:.3}">
           <button type="submit" class="submit-button">提交到 leaderboard 看看你有多能骂！</button>
         </form>
         </div>
@@ -678,7 +678,7 @@ pub fn render_report(
         </div>
         <div class="sbai-kicker">AI 写得越自信</div>
         <div class="sbai-value-wrap">
-          <div class="sbai-value number-roll" data-target-number="{sbai:.2}" data-decimals="2" data-display="0.00">0.00</div>
+          <div class="sbai-value number-roll" data-target-number="{sbai:.3}" data-decimals="3" data-display="0.000">0.000</div>
         </div>
         <div class="sbai-mantra">人越接近发疯</div>
         <div class="sbai-copy">{sbai_copy}</div>

@@ -1,16 +1,66 @@
 ---
-import type { LeaderboardEntry } from "../lib/types";
+import type {
+  LeaderboardEntry,
+  LeaderboardSortDirection,
+  LeaderboardSortKey,
+} from "../lib/types";
 
 type Props = {
   entries: LeaderboardEntry[];
+  sortKey: LeaderboardSortKey;
+  sortDirection: LeaderboardSortDirection;
 };
 
-const { entries } = Astro.props;
+const { entries, sortKey, sortDirection } = Astro.props;
+
+const sortLabels: Record<LeaderboardSortKey, string> = {
+  profanityCount: "Times Cursed",
+  tokens: "Tokens",
+  sbai: "SBAI",
+  updatedAt: "Updated",
+};
+
+const sortKeys: LeaderboardSortKey[] = ["profanityCount", "tokens", "sbai", "updatedAt"];
+const directionItems: LeaderboardSortDirection[] = ["desc", "asc"];
+
+function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSortDirection) {
+  const search = new URLSearchParams({
+    sort: nextSortKey,
+    dir: nextDirection,
+  });
+  return `/?${search.toString()}`;
+}
 ---
 
 <section class="surface leaderboard">
   <div class="leaderboard-header">
     <h2 class="section-title">Leaderboard</h2>
+    <div class="leaderboard-tools">
+      <div class="tool-group">
+        {
+          sortKeys.map((item) => (
+            <a
+              href={hrefFor(item, sortDirection)}
+              class:list={["tool-chip", sortKey === item && "is-active"]}
+            >
+              {sortLabels[item]}
+            </a>
+          ))
+        }
+      </div>
+      <div class="tool-group">
+        {
+          directionItems.map((item) => (
+            <a
+              href={hrefFor(sortKey, item)}
+              class:list={["tool-chip", sortDirection === item && "is-active"]}
+            >
+              {item === "desc" ? "Descending" : "Ascending"}
+            </a>
+          ))
+        }
+      </div>
+    </div>
   </div>
 
   <div class="table-shell">
@@ -19,7 +69,7 @@ const { entries } = Astro.props;
         <tr>
           <th>Rank</th>
           <th>Account</th>
-          <th>Events</th>
+          <th>Times Cursed</th>
           <th>Tokens</th>
           <th>SBAI</th>
           <th>Updated</th>
@@ -39,7 +89,7 @@ const { entries } = Astro.props;
               </td>
               <td>{entry.profanityCount.toLocaleString("en-US")}</td>
               <td>{entry.tokens.toLocaleString("en-US")}</td>
-              <td class="change">{entry.sbai.toFixed(1)}</td>
+              <td class="change">{entry.sbai.toFixed(3)}</td>
               <td>{new Date(entry.updatedAt).toLocaleDateString("en-US")}</td>
             </tr>
           ))
@@ -56,6 +106,44 @@ const { entries } = Astro.props;
 
   .leaderboard-header {
     margin-bottom: 14px;
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .leaderboard-tools {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .tool-group {
+    display: inline-flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .tool-chip {
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.76);
+    padding: 8px 10px;
+    border-radius: 8px;
+    transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+  }
+
+  .tool-chip.is-active {
+    color: var(--accent);
+    border-color: rgba(255, 91, 97, 0.34);
+    background: rgba(255, 91, 97, 0.1);
   }
 
   .table-shell {
@@ -127,5 +215,15 @@ const { entries } = Astro.props;
   .change {
     color: #0d7a84;
     font-weight: 800;
+  }
+
+  @media (max-width: 980px) {
+    .leaderboard-header {
+      flex-direction: column;
+    }
+
+    .leaderboard-tools {
+      justify-content: flex-start;
+    }
   }
 </style>

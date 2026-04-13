@@ -1,5 +1,11 @@
 import { env } from "cloudflare:workers";
-import type { LeaderboardEntry, LeaderboardSummary, Viewer } from "./types";
+import type {
+  LeaderboardEntry,
+  LeaderboardSortDirection,
+  LeaderboardSortKey,
+  LeaderboardSummary,
+  Viewer,
+} from "./types";
 
 type LeaderboardRow = Omit<LeaderboardEntry, "rank">;
 type SummaryRow = {
@@ -7,6 +13,25 @@ type SummaryRow = {
   totalEvents: number;
   totalTokens: number;
   averageSbai: number;
+};
+
+const ORDER_BY_SQL: Record<LeaderboardSortKey, Record<LeaderboardSortDirection, string>> = {
+  profanityCount: {
+    asc: "profanity_count ASC, sbai ASC, tokens ASC, updated_at DESC",
+    desc: "profanity_count DESC, sbai DESC, tokens DESC, updated_at ASC",
+  },
+  tokens: {
+    asc: "tokens ASC, profanity_count ASC, sbai ASC, updated_at DESC",
+    desc: "tokens DESC, profanity_count DESC, sbai DESC, updated_at ASC",
+  },
+  sbai: {
+    asc: "sbai ASC, profanity_count ASC, tokens ASC, updated_at DESC",
+    desc: "sbai DESC, profanity_count DESC, tokens DESC, updated_at ASC",
+  },
+  updatedAt: {
+    asc: "updated_at ASC, profanity_count DESC, sbai DESC, tokens DESC",
+    desc: "updated_at DESC, profanity_count DESC, sbai DESC, tokens DESC",
+  },
 };
 
 function getDatabase() {
@@ -21,8 +46,13 @@ export function hasDatabaseBinding() {
   return Boolean(env.DB);
 }
 
-export async function listLeaderboard(limit = 50) {
+export async function listLeaderboard(
+  limit = 50,
+  sortKey: LeaderboardSortKey = "profanityCount",
+  direction: LeaderboardSortDirection = "desc",
+) {
   const database = getDatabase();
+  const orderBy = ORDER_BY_SQL[sortKey][direction];
   const result = await database
     .prepare(
       `
@@ -37,7 +67,7 @@ export async function listLeaderboard(limit = 50) {
           sbai,
           updated_at AS updatedAt
         FROM leaderboard_entries
-        ORDER BY profanity_count DESC, sbai DESC, tokens DESC, updated_at ASC
+        ORDER BY ${orderBy}
         LIMIT ?
       `,
     )
@@ -110,6 +140,7 @@ export async function upsertLeaderboardEntry(
 ) {
   const database = getDatabase();
   const updatedAt = Date.now();
+  const normalizedSbai = Math.round(sbai * 1000) / 1000;
 
   await database
     .prepare(
@@ -144,7 +175,7 @@ export async function upsertLeaderboardEntry(
       viewer.profileUrl,
       profanityCount,
       tokens,
-      sbai,
+      normalizedSbai,
       updatedAt,
     )
     .run();
@@ -161,6 +192,6 @@ export async function upsertLeaderboardEntry(
         ) VALUES (?, ?, ?, ?, ?)
       `,
     )
-    .bind(viewer.githubId, profanityCount, tokens, sbai, updatedAt)
+    .bind(viewer.githubId, profanityCount, tokens, normalizedSbai, updatedAt)
     .run();
 }

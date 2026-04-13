@@ -6,9 +6,18 @@ import LeaderboardTable from "../components/LeaderboardTable.astro";
 import Podium from "../components/Podium.astro";
 import StatsStrip from "../components/StatsStrip.astro";
 import { getLeaderboardSummary, hasDatabaseBinding, listLeaderboard } from "../lib/db";
+import type { LeaderboardSortDirection, LeaderboardSortKey } from "../lib/types";
+
+const sortValue = Astro.url.searchParams.get("sort");
+const directionValue = Astro.url.searchParams.get("dir");
+const sortKey: LeaderboardSortKey =
+  sortValue === "tokens" || sortValue === "sbai" || sortValue === "updatedAt"
+    ? sortValue
+    : "profanityCount";
+const sortDirection: LeaderboardSortDirection = directionValue === "asc" ? "asc" : "desc";
 
 const databaseReady = hasDatabaseBinding();
-const entries = databaseReady ? await listLeaderboard() : [];
+const entries = databaseReady ? await listLeaderboard(50, sortKey, sortDirection) : [];
 const podium = entries.slice(0, 3);
 const summary = databaseReady
   ? await getLeaderboardSummary()
@@ -21,7 +30,7 @@ const summary = databaseReady
 
 const stats = [
   { label: "Participants", value: summary.participants.toLocaleString("en-US"), tone: "red" as const },
-  { label: "Average SBAI", value: summary.averageSbai.toFixed(1), tone: "teal" as const },
+  { label: "Average SBAI", value: summary.averageSbai.toFixed(3), tone: "teal" as const },
   { label: "Uploaded Tokens", value: summary.totalTokens.toLocaleString("en-US"), tone: "gold" as const },
 ];
 ---
@@ -52,7 +61,7 @@ const stats = [
 
     <div style="height: 18px;"></div>
 
-    <LeaderboardTable entries={entries} />
+    <LeaderboardTable entries={entries} sortKey={sortKey} sortDirection={sortDirection} />
   </main>
 </BaseLayout>
 
