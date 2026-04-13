@@ -1,0 +1,15 @@
+{
+  "name": "maleme-darwin-x64",
+  "version": "0.1.0",
+  "description": "macOS x64 binary for maleme.",
+  "license": "WTFPL",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "vendor"
+  ]
+}

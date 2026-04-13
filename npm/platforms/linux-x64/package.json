@@ -1,0 +1,15 @@
+{
+  "name": "maleme-linux-x64",
+  "version": "0.1.0",
+  "description": "Linux x64 binary for maleme.",
+  "license": "WTFPL",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "vendor"
+  ]
+}

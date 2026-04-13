@@ -1,0 +1,15 @@
+{
+  "name": "maleme-linux-arm64",
+  "version": "0.1.0",
+  "description": "Linux arm64 binary for maleme.",
+  "license": "WTFPL",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "vendor"
+  ]
+}

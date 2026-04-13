@@ -125,12 +125,56 @@ Test:
 cargo test
 ```
 
+## Install
+
+Install the published CLI from npm:
+
+```bash
+npm install -g maleme
+```
+
+The npm distribution follows the same general pattern used by Codex CLI:
+
+- `maleme` is the lightweight wrapper package
+- `maleme-<platform>-<arch>` packages carry the native binaries
+- the wrapper selects the right binary at runtime
+
+Current npm targets wired in this repository:
+
+- `darwin-arm64`
+- `darwin-x64`
+- `linux-arm64`
+- `linux-x64`
+- `win32-x64`
+
+## npm Release Flow
+
+The repository includes a GitHub Actions workflow at `.github/workflows/publish-npm.yml`.
+
+Release steps:
+
+1. bump `version` in `Cargo.toml`
+2. run `node scripts/npm/sync-packages.mjs`
+3. commit and push
+4. create and push a matching git tag like `v0.1.0`
+5. let GitHub Actions publish the platform packages first, then the main `maleme` package
+
+Local validation on the current machine:
+
+```bash
+node scripts/npm/sync-packages.mjs
+cargo build --release
+node scripts/npm/stage-binary.mjs aarch64-apple-darwin target/release/maleme
+npm pack ./npm/platforms/darwin-arm64
+npm pack ./npm/main
+```
+
 ## Repository Metadata
 
 - Source: [github.com/Yeuoly/maleme](https://github.com/Yeuoly/maleme)
 - Primary language: Rust
 - License: WTFPL
-- Distribution model: local executable
+- Distribution model: local executable and npm-distributed native binary
 
 ## Star History
 

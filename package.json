@@ -1,0 +1,15 @@
+{
+  "name": "maleme-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "npm/main",
+    "npm/platforms/*"
+  ],
+  "scripts": {
+    "npm:check-release": "node scripts/npm/check-release-version.mjs",
+    "npm:sync-versions": "node scripts/npm/sync-packages.mjs",
+    "npm:stage-binary": "node scripts/npm/stage-binary.mjs",
+    "npm:pack:main": "npm pack ./npm/main"
+  }
+}

@@ -1,0 +1,98 @@
+name: publish-npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-platform:
+    name: publish-${{ matrix.package_dir }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_dir: darwin-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            binary: maleme
+          - package_dir: darwin-x64
+            runner: macos-13
+            target: x86_64-apple-darwin
+            binary: maleme
+          - package_dir: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            binary: maleme
+            install_musl: true
+          - package_dir: linux-x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            binary: maleme
+            install_musl: true
+          - package_dir: win32-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: maleme.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: ${{ matrix.install_musl }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Verify release tag
+        run: node scripts/npm/check-release-version.mjs "${GITHUB_REF_NAME}"
+
+      - name: Sync npm package versions
+        run: node scripts/npm/sync-packages.mjs
+
+      - name: Build Rust binary
+        run: cargo build --release --locked --target "${{ matrix.target }}"
+
+      - name: Stage npm binary
+        run: node scripts/npm/stage-binary.mjs "${{ matrix.target }}" "target/${{ matrix.target }}/release/${{ matrix.binary }}"
+
+      - name: Publish platform package
+        run: npm publish "./npm/platforms/${{ matrix.package_dir }}" --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-main:
+    name: publish-main
+    needs: publish-platform
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify release tag
+        run: node scripts/npm/check-release-version.mjs "${GITHUB_REF_NAME}"
+
+      - name: Sync npm package versions
+        run: node scripts/npm/sync-packages.mjs
+
+      - name: Publish main package
+        run: npm publish ./npm/main --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
