@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "macOS arm64 binary for maleme.",
   "license": "WTFPL",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yeuoly/maleme.git"
+  },
   "os": [
     "darwin"
   ],
