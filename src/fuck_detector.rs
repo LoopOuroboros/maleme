@@ -18,7 +18,14 @@ pub struct ProfanityEntry {
 pub struct FuckDetector {
     matcher: AhoCorasick,
     entries: Vec<ProfanityEntry>,
-    requires_boundary: Vec<bool>,
+    match_rules: Vec<MatchRule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatchRule {
+    None,
+    AsciiTokenBoundary,
+    SingleHanBoundary,
 }
 
 impl FuckDetector {
@@ -28,7 +35,7 @@ impl FuckDetector {
 
     pub fn from_lexicon(lexicon: &str) -> Result<Self, FuckDetectorError> {
         let mut entries = Vec::new();
-        let mut requires_boundary = Vec::new();
+        let mut match_rules = Vec::new();
 
         for (index, line) in lexicon.lines().enumerate() {
             let line_number = index + 1;
@@ -37,7 +44,7 @@ impl FuckDetector {
             }
 
             let text = line.to_owned();
-            requires_boundary.push(is_boundary_sensitive(&text));
+            match_rules.push(match_rule_for(&text));
             entries.push(ProfanityEntry {
                 code: line_number as i64,
                 text,
@@ -57,7 +64,7 @@ impl FuckDetector {
         Ok(Self {
             matcher,
             entries,
-            requires_boundary,
+            match_rules,
         })
     }
 
@@ -71,9 +78,7 @@ impl FuckDetector {
         for found in self.matcher.find_iter(text) {
             let index = found.pattern().as_usize();
 
-            if self.requires_boundary[index]
-                && !has_token_boundary(text, found.start(), found.end())
-            {
+            if !matches_rule(self.match_rules[index], text, found.start(), found.end()) {
                 continue;
             }
 
@@ -85,12 +90,30 @@ impl FuckDetector {
     }
 }
 
-fn is_boundary_sensitive(text: &str) -> bool {
-    text.chars()
+fn match_rule_for(text: &str) -> MatchRule {
+    if text
+        .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || ch == '\'' || ch == ' ' || ch == '-')
+    {
+        return MatchRule::AsciiTokenBoundary;
+    }
+
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(ch), None) if is_han_character(ch) => MatchRule::SingleHanBoundary,
+        _ => MatchRule::None,
+    }
 }
 
-fn has_token_boundary(text: &str, start: usize, end: usize) -> bool {
+fn matches_rule(rule: MatchRule, text: &str, start: usize, end: usize) -> bool {
+    match rule {
+        MatchRule::None => true,
+        MatchRule::AsciiTokenBoundary => has_ascii_token_boundary(text, start, end),
+        MatchRule::SingleHanBoundary => has_non_han_boundary(text, start, end),
+    }
+}
+
+fn has_ascii_token_boundary(text: &str, start: usize, end: usize) -> bool {
     let left = match text[..start].chars().next_back() {
         Some(ch) => !ch.is_ascii_alphanumeric(),
         None => true,
@@ -101,6 +124,35 @@ fn has_token_boundary(text: &str, start: usize, end: usize) -> bool {
     };
 
     left && right
+}
+
+fn has_non_han_boundary(text: &str, start: usize, end: usize) -> bool {
+    let left = match text[..start].chars().next_back() {
+        Some(ch) => !is_han_character(ch),
+        None => true,
+    };
+    let right = match text[end..].chars().next() {
+        Some(ch) => !is_han_character(ch),
+        None => true,
+    };
+
+    left && right
+}
+
+fn is_han_character(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0x20000..=0x2A6DF
+            | 0x2A700..=0x2B73F
+            | 0x2B740..=0x2B81F
+            | 0x2B820..=0x2CEAF
+            | 0x2CEB0..=0x2EBEF
+            | 0x2F800..=0x2FA1F
+            | 0x3007
+    )
 }
 
 #[derive(Debug, Error)]
@@ -159,5 +211,21 @@ mod tests {
         let error = FuckDetector::from_lexicon("fuck\n\nshit").unwrap_err();
 
         assert!(error.to_string().contains("invalid lexicon line 2"));
+    }
+
+    #[test]
+    fn single_han_entries_do_not_match_inside_words() {
+        let detector = FuckDetector::from_lexicon("操\n草\n靠").unwrap();
+        let counts = detector.detect("操作 稿草 靠谱 操，你就不会吗？ 操 我");
+
+        assert_eq!(counts, BTreeMap::from([("操".to_owned(), 2)]));
+    }
+
+    #[test]
+    fn single_han_entries_still_match_with_non_han_neighbors() {
+        let detector = FuckDetector::from_lexicon("操").unwrap();
+        let counts = detector.detect("操! a操? [操] 操 我");
+
+        assert_eq!(counts, BTreeMap::from([("操".to_owned(), 4)]));
     }
 }

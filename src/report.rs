@@ -246,29 +246,43 @@ pub fn render_report(
     }}
     .layout {{
       display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
       gap: 16px;
       min-height: 0;
+      align-items: stretch;
+    }}
+    .viz-panel {{
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+    }}
+    .chart-panel {{
+      min-width: 0;
+    }}
+    .cloud-panel {{
+      min-width: 0;
     }}
     .chart-wrap {{
-      flex: 1;
+      width: 100%;
+      height: 100%;
       min-height: 0;
       overflow: hidden;
     }}
     .cloud {{
-      flex: 1;
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
+      width: 100%;
+      height: 100%;
       min-height: 0;
       overflow: hidden;
     }}
     .cloud-canvas {{
       width: 100%;
       height: 100%;
-      min-height: 320px;
-      max-height: 100%;
+      min-height: 0;
+      max-height: none;
     }}
     .cloud-fallback {{
       display: none;
@@ -361,12 +375,12 @@ pub fn render_report(
     </section>
 
     <section class="layout">
-      <div class="panel">
+      <div class="panel viz-panel chart-panel">
         <h2>你这一天骂了 AI 多少次！</h2>
         <div class="chart-wrap">{chart}</div>
       </div>
 
-      <div class="panel">
+      <div class="panel viz-panel cloud-panel">
         <h2>你最喜欢这么骂！</h2>
         {word_cloud}
       </div>
@@ -638,7 +652,7 @@ fn render_line_chart(daily_counts: &[DailyCount]) -> String {
     }
 
     let width = 1080.0;
-    let height = 260.0;
+    let height = 220.0;
     let left = 56.0;
     let right = 20.0;
     let top = 20.0;
