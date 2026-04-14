@@ -680,10 +680,8 @@ pub fn render_report(
         <div class="sbai-value-wrap">
           <div class="sbai-value number-roll" data-target-number="{sbai:.3}" data-decimals="3" data-display="0.000">0.000</div>
         </div>
-        <div class="sbai-mantra">人越接近发疯</div>
         <div class="sbai-copy">{sbai_copy}</div>
         <div class="sbai-divider"></div>
-        <div class="sbai-chant">乱写 / 破防 / 暴走</div>
         <div class="sbai-footnote">每千万 tokens 的骂人次数</div>
       </div>
     </section>
