@@ -8,7 +8,12 @@ import {
   sessionCookieSameSite,
 } from "../lib/auth";
 import { createFallbackReportPayload, parseReportPayloadJson } from "../lib/report";
-import { createPendingSubmission, hasDatabaseBinding, upsertLeaderboardEntry } from "../lib/db";
+import {
+  createPendingSubmission,
+  getLeaderboardProfileByGithubId,
+  hasDatabaseBinding,
+  upsertLeaderboardEntry,
+} from "../lib/db";
 
 export const prerender = false;
 
@@ -62,5 +67,6 @@ export const POST: APIRoute = async ({ cookies, redirect, request, url }) => {
   }
 
   await upsertLeaderboardEntry(viewer, reportPayload);
-  return redirect(`/u/${encodeURIComponent(viewer.login)}?state=submitted`);
+  const profile = await getLeaderboardProfileByGithubId(viewer.githubId);
+  return redirect(`/?state=submitted&rank=${profile?.rank ?? 0}`);
 };

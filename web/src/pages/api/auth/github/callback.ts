@@ -10,7 +10,12 @@ import {
   isSecureRequest,
   sessionCookieSameSite,
 } from "../../../../lib/auth";
-import { consumePendingSubmission, hasDatabaseBinding, upsertLeaderboardEntry } from "../../../../lib/db";
+import {
+  consumePendingSubmission,
+  getLeaderboardProfileByGithubId,
+  hasDatabaseBinding,
+  upsertLeaderboardEntry,
+} from "../../../../lib/db";
 
 export const prerender = false;
 
@@ -54,7 +59,8 @@ export const GET: APIRoute = async ({ cookies, redirect, url }) => {
 
       if (pending) {
         await upsertLeaderboardEntry(viewer, pending);
-        return redirect(`/u/${encodeURIComponent(viewer.login)}?state=submitted`);
+        const profile = await getLeaderboardProfileByGithubId(viewer.githubId);
+        return redirect(`/?state=submitted&rank=${profile?.rank ?? 0}`);
       }
     }
 

@@ -23,7 +23,6 @@ const title = profile ? `${profile.displayName} - maleme leaderboard` : "maleme 
 const description = profile ? `${profile.displayName}'s maleme profanity report` : "maleme leaderboard";
 const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
 const shareUrl = profile ? new URL(getSharePath(profile.githubId), getAppUrl(Astro.url)).toString() : "";
-const showSubmittedShareModal = Astro.url.searchParams.get("state") === "submitted";
 const twitterShareUrl = profile
   ? buildTwitterIntentUrl(
     `${profile.displayName} is ranked #${profile.rank} on the maleme leaderboard with SBAI ${report?.sbai.toFixed(2) ?? "0.00"}`,
@@ -129,45 +128,6 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
           </button>
         </div>
       </ReportScreen>
-      <dialog
-        class="share-modal"
-        id="share-modal"
-        data-open-on-load={showSubmittedShareModal ? "true" : "false"}
-      >
-        <form method="dialog" class="share-modal-card">
-          <button type="submit" class="share-modal-close" aria-label="Close share dialog">Close</button>
-          <p class="share-modal-kicker">Submission Saved</p>
-          <h2 class="share-modal-title">Share on X</h2>
-          <p class="share-modal-copy">
-            Your leaderboard card is live. Post it now.
-          </p>
-          <div class="share-modal-actions">
-            <a
-              href={twitterShareUrl}
-              target="_blank"
-              rel="noreferrer"
-              class="submit-button twitter-button"
-              id="share-modal-twitter"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" class="button-logo">
-                <path
-                  fill="currentColor"
-                  d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
-                />
-              </svg>
-              <span>Share on X</span>
-            </a>
-            <button
-              type="button"
-              class="submit-button ghost-button share-modal-copy-button"
-              id="share-modal-copy-button"
-              data-share-url={shareUrl}
-            >
-              Copy Share Link
-            </button>
-          </div>
-        </form>
-      </dialog>
     ) : (
       <main class="missing-shell">
         <section class="surface missing-card">
@@ -182,9 +142,6 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
 
 <script>
   const shareButton = document.getElementById("share-button");
-  const shareModal = document.getElementById("share-modal");
-  const shareModalCopyButton = document.getElementById("share-modal-copy-button");
-  const shareModalTwitterButton = document.getElementById("share-modal-twitter");
 
   async function copyShareUrl(button) {
     const shareUrl = button?.dataset.shareUrl;
@@ -221,44 +178,9 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
     }
   }
 
-  shareModalCopyButton?.addEventListener("click", async () => {
-    await copyShareUrl(shareModalCopyButton);
-  });
-
   shareButton?.addEventListener("click", async () => {
     await copyShareUrl(shareButton);
   });
-
-  const supportsDialog =
-    typeof HTMLDialogElement !== "undefined" &&
-    shareModal instanceof HTMLDialogElement;
-
-  if (supportsDialog && shareModal.dataset.openOnLoad === "true") {
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.delete("state");
-    window.history.replaceState({}, "", nextUrl);
-
-    if (typeof shareModal.showModal === "function") {
-      shareModal.showModal();
-    } else {
-      shareModal.setAttribute("open", "");
-    }
-
-    shareModal.addEventListener("click", (event) => {
-      const rect = shareModal.getBoundingClientRect();
-      const isBackdropClick =
-        event.clientX < rect.left ||
-        event.clientX > rect.right ||
-        event.clientY < rect.top ||
-        event.clientY > rect.bottom;
-
-      if (isBackdropClick) {
-        shareModal.close();
-      }
-    });
-
-    shareModalTwitterButton?.focus();
-  }
 </script>
 
 <style>
@@ -356,85 +278,6 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
     box-shadow:
       0 20px 36px rgba(0, 0, 0, 0.42),
       inset 0 0 0 1px rgba(255, 255, 255, 0.16);
-  }
-
-  .share-modal {
-    width: min(460px, calc(100vw - 24px));
-    margin: auto;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-  }
-
-  .share-modal::backdrop {
-    background: rgba(8, 10, 18, 0.64);
-    backdrop-filter: blur(8px);
-  }
-
-  .share-modal-card {
-    position: relative;
-    display: grid;
-    gap: 14px;
-    padding: 28px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
-      rgba(18, 12, 16, 0.92);
-    box-shadow:
-      0 28px 80px rgba(5, 7, 12, 0.42),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  }
-
-  .share-modal-close {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    min-width: 44px;
-    min-height: 44px;
-    border: 0;
-    border-radius: 8px;
-    padding: 0 12px;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 800;
-    color: var(--muted);
-    background: rgba(255, 255, 255, 0.08);
-    cursor: pointer;
-  }
-
-  .share-modal-kicker {
-    margin: 0;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #ffb86c;
-  }
-
-  .share-modal-title {
-    margin: 0;
-    font-size: 30px;
-    line-height: 1.05;
-    color: #ffffff;
-  }
-
-  .share-modal-copy {
-    margin: 0;
-    font-size: 15px;
-    line-height: 1.6;
-    color: rgba(255, 255, 255, 0.78);
-  }
-
-  .share-modal-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .share-modal-copy-button {
-    color: #ffffff;
   }
 
   .missing-shell {
