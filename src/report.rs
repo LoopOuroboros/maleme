@@ -84,22 +84,47 @@ pub fn write_report_and_open(
         source,
     })?;
 
-    let status = Command::new("open")
-        .arg(&output_path)
-        .status()
-        .map_err(|source| ReportError::OpenBrowser {
-            path: output_path.clone(),
-            source,
-        })?;
+    open_report(&output_path)?;
+
+    Ok(output_path)
+}
+
+fn open_report(path: &Path) -> Result<(), ReportError> {
+    let mut command = report_open_command(path);
+    let status = command.status().map_err(|source| ReportError::OpenBrowser {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
     if !status.success() {
         return Err(ReportError::OpenBrowserStatus {
-            path: output_path,
+            path: path.to_path_buf(),
             code: status.code().unwrap_or(-1),
         });
     }
 
-    Ok(output_path)
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn report_open_command(path: &Path) -> Command {
+    let mut command = Command::new("open");
+    command.arg(path);
+    command
+}
+
+#[cfg(target_os = "linux")]
+fn report_open_command(path: &Path) -> Command {
+    let mut command = Command::new("xdg-open");
+    command.arg(path);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn report_open_command(path: &Path) -> Command {
+    let mut command = Command::new("cmd");
+    command.arg("/C").arg("start").arg("").arg(path);
+    command
 }
 
 pub fn render_report(
