@@ -135,7 +135,7 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
 
 <script>
   for (const button of document.querySelectorAll(".share-button")) {
-    button.addEventListener("click", async (event) => {
+    button.addEventListener("click", (event) => {
       event.preventDefault();
 
       const shareUrl = button.getAttribute("data-share-url");
@@ -151,8 +151,8 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
       twitterIntentUrl.searchParams.set("url", absoluteUrl);
 
       const popup = window.open(twitterIntentUrl.toString(), "_blank", "noopener,noreferrer");
-      if (!popup) {
-        window.location.href = twitterIntentUrl.toString();
+      if (popup) {
+        popup.opener = null;
       }
     });
   }
