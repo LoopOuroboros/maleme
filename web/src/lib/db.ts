@@ -4,6 +4,8 @@ import type {
   LeaderboardEntry,
   LeaderboardProfile,
   LeaderboardReportPayload,
+  LeaderboardSortDirection,
+  LeaderboardSortKey,
   LeaderboardSummary,
   Viewer,
 } from "./types";
@@ -99,6 +101,25 @@ async function getLeaderboardProfileByPredicate(predicateSql: string, predicateV
   } satisfies LeaderboardProfile;
 }
 
+const ORDER_BY_SQL: Record<LeaderboardSortKey, Record<LeaderboardSortDirection, string>> = {
+  profanityCount: {
+    asc: "profanity_count ASC, sbai ASC, tokens ASC, updated_at DESC",
+    desc: "profanity_count DESC, sbai DESC, tokens DESC, updated_at ASC",
+  },
+  tokens: {
+    asc: "tokens ASC, profanity_count ASC, sbai ASC, updated_at DESC",
+    desc: "tokens DESC, profanity_count DESC, sbai DESC, updated_at ASC",
+  },
+  sbai: {
+    asc: "sbai ASC, profanity_count ASC, tokens ASC, updated_at DESC",
+    desc: "sbai DESC, profanity_count DESC, tokens DESC, updated_at ASC",
+  },
+  updatedAt: {
+    asc: "updated_at ASC, profanity_count DESC, sbai DESC, tokens DESC",
+    desc: "updated_at DESC, profanity_count DESC, sbai DESC, tokens DESC",
+  },
+};
+
 function getDatabase() {
   if (!env.DB) {
     throw new Error("D1 binding DB is missing.");
@@ -111,8 +132,13 @@ export function hasDatabaseBinding() {
   return Boolean(env.DB);
 }
 
-export async function listLeaderboard(limit = 50) {
+export async function listLeaderboard(
+  limit = 50,
+  sortKey: LeaderboardSortKey = "profanityCount",
+  direction: LeaderboardSortDirection = "desc",
+) {
   const database = getDatabase();
+  const orderBy = ORDER_BY_SQL[sortKey][direction];
   const result = await database
     .prepare(
       `
@@ -127,7 +153,7 @@ export async function listLeaderboard(limit = 50) {
           sbai,
           updated_at AS updatedAt
         FROM leaderboard_entries
-        ORDER BY profanity_count DESC, sbai DESC, tokens DESC, updated_at ASC
+        ORDER BY ${orderBy}
         LIMIT ?
       `,
     )
@@ -263,6 +289,7 @@ export async function upsertLeaderboardEntry(
   const database = getDatabase();
   const updatedAt = Date.now();
   const reportPayloadJson = JSON.stringify(submission);
+  const normalizedSbai = Math.round(submission.sbai * 1000) / 1000;
 
   await database
     .prepare(
@@ -297,7 +324,7 @@ export async function upsertLeaderboardEntry(
       viewer.profileUrl,
       submission.profanityCount,
       submission.tokens,
-      submission.sbai,
+      normalizedSbai,
       updatedAt,
     )
     .run();
@@ -319,7 +346,7 @@ export async function upsertLeaderboardEntry(
       viewer.githubId,
       submission.profanityCount,
       submission.tokens,
-      submission.sbai,
+      normalizedSbai,
       reportPayloadJson,
       updatedAt,
     )

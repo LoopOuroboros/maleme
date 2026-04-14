@@ -15,6 +15,8 @@ npx maleme
 bunx maleme
 vpx maleme
 ```
+<img width="2894" height="1610" alt="image" src="https://github.com/user-attachments/assets/319b06aa-c132-403b-8072-4c9e7bb5efb8" />
+
 
 ## Map
 

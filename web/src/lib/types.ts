@@ -6,6 +6,9 @@ export type Viewer = {
   profileUrl: string;
 };
 
+export type LeaderboardSortKey = "profanityCount" | "tokens" | "sbai" | "updatedAt";
+export type LeaderboardSortDirection = "asc" | "desc";
+
 export type LeaderboardEntry = {
   rank: number;
   githubId: number;

@@ -84,22 +84,47 @@ pub fn write_report_and_open(
         source,
     })?;
 
-    let status = Command::new("open")
-        .arg(&output_path)
-        .status()
-        .map_err(|source| ReportError::OpenBrowser {
-            path: output_path.clone(),
-            source,
-        })?;
+    open_report(&output_path)?;
+
+    Ok(output_path)
+}
+
+fn open_report(path: &Path) -> Result<(), ReportError> {
+    let mut command = report_open_command(path);
+    let status = command.status().map_err(|source| ReportError::OpenBrowser {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
     if !status.success() {
         return Err(ReportError::OpenBrowserStatus {
-            path: output_path,
+            path: path.to_path_buf(),
             code: status.code().unwrap_or(-1),
         });
     }
 
-    Ok(output_path)
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn report_open_command(path: &Path) -> Command {
+    let mut command = Command::new("open");
+    command.arg(path);
+    command
+}
+
+#[cfg(target_os = "linux")]
+fn report_open_command(path: &Path) -> Command {
+    let mut command = Command::new("xdg-open");
+    command.arg(path);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn report_open_command(path: &Path) -> Command {
+    let mut command = Command::new("cmd");
+    command.arg("/C").arg("start").arg("").arg(path);
+    command
 }
 
 pub fn render_report(
@@ -199,7 +224,7 @@ pub fn render_report(
     }}
     .panel {{
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.42)),
         var(--panel);
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -325,28 +350,28 @@ pub fn render_report(
       overflow: hidden;
       background:
         radial-gradient(circle at 16% 16%, var(--sbai-glow), transparent 24%),
-        linear-gradient(180deg, rgba(255, 245, 238, 0.05), rgba(255, 245, 238, 0) 22%),
-        linear-gradient(156deg, var(--sbai-surface-top) 0%, #141318 36%, var(--sbai-surface-bottom) 100%);
+        linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.08) 22%),
+        linear-gradient(156deg, var(--sbai-surface-top) 0%, rgba(255, 249, 241, 0.98) 36%, var(--sbai-surface-bottom) 100%);
       border-color: var(--sbai-border);
       box-shadow:
-        0 24px 48px rgba(8, 9, 14, 0.42),
-        inset 0 0 0 1px rgba(255, 245, 238, 0.06),
-        inset 0 0 52px rgba(255, 35, 70, 0.12);
+        0 22px 40px rgba(211, 155, 74, 0.16),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.36),
+        inset 0 0 44px rgba(255, 126, 112, 0.10);
     }}
     .sbai-card::before {{
       content: "";
       position: absolute;
       inset: 0;
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 36%, rgba(255, 255, 255, 0.02) 72%, transparent 100%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 36%, rgba(255, 255, 255, 0.10) 72%, transparent 100%),
         repeating-linear-gradient(
           180deg,
-          rgba(255, 255, 255, 0.05) 0,
-          rgba(255, 255, 255, 0.05) 1px,
+          rgba(255, 255, 255, 0.12) 0,
+          rgba(255, 255, 255, 0.12) 1px,
           transparent 1px,
           transparent 7px
         );
-      opacity: 0.42;
+      opacity: 0.34;
       pointer-events: none;
     }}
     .sbai-card::after {{
@@ -354,9 +379,9 @@ pub fn render_report(
       position: absolute;
       inset: -20% 0 auto;
       height: 44%;
-      background: linear-gradient(180deg, rgba(255, 73, 95, 0), rgba(255, 73, 95, 0.14), rgba(255, 73, 95, 0));
+      background: linear-gradient(180deg, rgba(255, 166, 72, 0), rgba(255, 166, 72, 0.16), rgba(255, 166, 72, 0));
       filter: blur(8px);
-      opacity: 0.72;
+      opacity: 0.56;
       animation: sbai-scan 6s linear infinite;
       pointer-events: none;
     }}
@@ -388,7 +413,7 @@ pub fn render_report(
       font-weight: 800;
       line-height: 1;
       text-transform: uppercase;
-      box-shadow: inset 0 0 18px rgba(255, 62, 110, 0.12);
+      box-shadow: inset 0 0 18px rgba(255, 158, 120, 0.18);
       animation: sbai-pulse 2.8s ease-in-out infinite;
     }}
     .sbai-kicker {{
@@ -413,8 +438,8 @@ pub fn render_report(
       color: var(--sbai-text);
       font-variant-numeric: tabular-nums;
       text-shadow:
-        0 0 22px rgba(255, 81, 96, 0.24),
-        0 0 40px rgba(255, 81, 96, 0.08);
+        0 8px 18px rgba(255, 128, 80, 0.18),
+        0 0 30px rgba(255, 206, 108, 0.18);
       animation: sbai-jolt 3.6s steps(2, end) infinite;
     }}
     .sbai-value::before,
@@ -455,7 +480,7 @@ pub fn render_report(
       width: 100%;
       height: 1px;
       margin-top: auto;
-      background: linear-gradient(90deg, var(--sbai-text), rgba(255, 237, 223, 0.08));
+      background: linear-gradient(90deg, var(--sbai-text), rgba(255, 180, 106, 0.16));
     }}
     .sbai-chant {{
       color: var(--sbai-text);
@@ -564,7 +589,7 @@ pub fn render_report(
       }}
       50% {{
         transform: translateY(-2px) scale(1.01);
-        text-shadow: 0 10px 18px rgba(255, 183, 3, 0.26);
+        text-shadow: 0 10px 18px rgba(255, 171, 57, 0.22);
       }}
     }}
     .chart-line {{
@@ -604,11 +629,11 @@ pub fn render_report(
     @keyframes sbai-pulse {{
       0%, 100% {{
         transform: translateY(0);
-        box-shadow: inset 0 0 18px rgba(255, 62, 110, 0.12);
+        box-shadow: inset 0 0 18px rgba(255, 158, 120, 0.18);
       }}
       50% {{
         transform: translateY(-1px);
-        box-shadow: inset 0 0 24px rgba(255, 62, 110, 0.22), 0 0 18px rgba(255, 62, 110, 0.12);
+        box-shadow: inset 0 0 24px rgba(255, 166, 88, 0.24), 0 0 18px rgba(255, 166, 88, 0.14);
       }}
     }}
     @keyframes sbai-jolt {{
@@ -667,7 +692,7 @@ pub fn render_report(
         <form class="submit-form" method="post" action="{submit_endpoint}">
           <input type="hidden" name="profanityCount" value="{total_profanities}">
           <input type="hidden" name="tokens" value="{total_tokens}">
-          <input type="hidden" name="sbai" value="{sbai:.2}">
+          <input type="hidden" name="sbai" value="{sbai:.3}">
           <textarea hidden name="reportPayload">{submission_payload}</textarea>
           <button type="submit" class="submit-button">提交到 leaderboard 看看你有多能骂！</button>
         </form>
@@ -680,12 +705,10 @@ pub fn render_report(
         </div>
         <div class="sbai-kicker">AI 写得越自信</div>
         <div class="sbai-value-wrap">
-          <div class="sbai-value number-roll" data-target-number="{sbai:.2}" data-decimals="2" data-display="0.00">0.00</div>
+          <div class="sbai-value number-roll" data-target-number="{sbai:.3}" data-decimals="3" data-display="0.000">0.000</div>
         </div>
-        <div class="sbai-mantra">人越接近发疯</div>
         <div class="sbai-copy">{sbai_copy}</div>
         <div class="sbai-divider"></div>
-        <div class="sbai-chant">乱写 / 破防 / 暴走</div>
         <div class="sbai-footnote">每千万 tokens 的骂人次数</div>
       </div>
     </section>
@@ -1052,13 +1075,8 @@ pub fn render_report(
             drawCtx.font = `800 ${{baseFontSize}}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
             drawCtx.textAlign = 'center';
             drawCtx.textBaseline = 'middle';
-            drawCtx.lineJoin = 'round';
-            drawCtx.lineWidth = Math.max(6, baseFontSize * 0.12);
-            drawCtx.strokeStyle = 'rgba(255,255,255,0.94)';
-            drawCtx.shadowColor = 'rgba(20, 33, 43, 0.14)';
-            drawCtx.shadowBlur = 12;
-            drawCtx.strokeText(label, logicalWidth / 2, logicalHeight / 2);
-            drawCtx.shadowBlur = 0;
+            drawCtx.shadowColor = 'rgba(121, 59, 34, 0.10)';
+            drawCtx.shadowBlur = 6;
             drawCtx.fillStyle = color;
             drawCtx.fillText(label, logicalWidth / 2, logicalHeight / 2);
 
@@ -1410,160 +1428,152 @@ fn report_headline(range_start: &str, range_end: &str, total_profanities: i64) -
 fn report_theme(sbai: f64) -> ReportTheme {
     if sbai < 0.5 {
         return ReportTheme {
-            bg: "#090d12",
-            bg_accent: "#121821",
-            panel: "rgba(10, 15, 20, 0.84)",
-            panel_strong: "rgba(13, 18, 24, 0.94)",
-            panel_tint: "rgba(14, 23, 31, 0.78)",
-            muted: "#8ca5af",
-            text: "#edf8ff",
-            line: "#ffb800",
-            line_soft: "rgba(255, 184, 0, 0.18)",
-            area_top: "rgba(255, 184, 0, 0.22)",
-            area_bottom: "rgba(255, 184, 0, 0.04)",
-            accent: "#59e8ff",
-            accent_soft: "rgba(89, 232, 255, 0.16)",
-            accent_warm: "#ffe85b",
-            accent_pink: "#ff5f7d",
-            border: "rgba(89, 232, 255, 0.22)",
-            grid: "rgba(50, 87, 96, 0.58)",
-            shadow: "0 20px 48px rgba(4, 7, 12, 0.34)",
-            tooltip_bg: "rgba(6, 10, 16, 0.94)",
-            hero_from: "rgba(11, 16, 22, 0.96)",
-            hero_to: "rgba(13, 20, 27, 0.96)",
-            hero_glow_a: "rgba(255, 232, 91, 0.16)",
-            hero_glow_b: "rgba(89, 232, 255, 0.16)",
-            cloud_glow: "rgba(89, 232, 255, 0.12)",
-            cloud_to: "rgba(10, 18, 25, 0.96)",
-            sbai_glow: "rgba(255, 184, 0, 0.24)",
-            sbai_surface_top: "#0b0e13",
-            sbai_surface_bottom: "#1b1910",
-            sbai_border: "rgba(255, 232, 171, 0.24)",
-            sbai_text: "rgba(255, 246, 210, 0.96)",
-            sbai_muted: "rgba(255, 226, 158, 0.82)",
-            word_palette: [
-                "#59e8ff", "#ffb800", "#ffe85b", "#ff5f7d", "#89f5ff", "#ffcf5a",
-            ],
-            fireworks_palette: ["#59e8ff", "#ffb800", "#ffe85b", "#ff5f7d", "#89f5ff"],
+            bg: "#fffdf8",
+            bg_accent: "#fff5e6",
+            panel: "rgba(255, 255, 255, 0.92)",
+            panel_strong: "rgba(255, 250, 242, 0.98)",
+            panel_tint: "rgba(255, 244, 227, 0.9)",
+            muted: "#8b735f",
+            text: "#2c2117",
+            line: "#f5a100",
+            line_soft: "rgba(245, 161, 0, 0.18)",
+            area_top: "rgba(245, 161, 0, 0.24)",
+            area_bottom: "rgba(245, 161, 0, 0.05)",
+            accent: "#29b7cc",
+            accent_soft: "rgba(41, 183, 204, 0.14)",
+            accent_warm: "#f4c95d",
+            accent_pink: "#ff6f7d",
+            border: "rgba(234, 208, 171, 0.9)",
+            grid: "rgba(222, 205, 180, 0.8)",
+            shadow: "0 20px 42px rgba(210, 167, 99, 0.16)",
+            tooltip_bg: "rgba(255, 251, 244, 0.98)",
+            hero_from: "rgba(255, 251, 243, 0.98)",
+            hero_to: "rgba(255, 242, 220, 0.98)",
+            hero_glow_a: "rgba(255, 213, 92, 0.24)",
+            hero_glow_b: "rgba(41, 183, 204, 0.18)",
+            cloud_glow: "rgba(255, 203, 103, 0.18)",
+            cloud_to: "rgba(255, 247, 235, 0.98)",
+            sbai_glow: "rgba(255, 184, 0, 0.22)",
+            sbai_surface_top: "#fffdf5",
+            sbai_surface_bottom: "#fff2d9",
+            sbai_border: "rgba(244, 194, 110, 0.42)",
+            sbai_text: "rgba(92, 55, 26, 0.98)",
+            sbai_muted: "rgba(129, 92, 49, 0.86)",
+            word_palette: ["#0d7282", "#945700", "#966b00", "#a12847", "#145f6c", "#b65a16"],
+            fireworks_palette: ["#29b7cc", "#f5a100", "#f4c95d", "#ff6f7d", "#61d5e2"],
         };
     }
 
     if sbai < 2.0 {
         return ReportTheme {
-            bg: "#0a0d12",
-            bg_accent: "#16151f",
-            panel: "rgba(12, 15, 21, 0.86)",
-            panel_strong: "rgba(14, 18, 25, 0.95)",
-            panel_tint: "rgba(25, 22, 30, 0.78)",
-            muted: "#9ca0b1",
-            text: "#f7f7ff",
-            line: "#ff8f1f",
-            line_soft: "rgba(255, 143, 31, 0.2)",
-            area_top: "rgba(255, 143, 31, 0.24)",
-            area_bottom: "rgba(255, 143, 31, 0.05)",
-            accent: "#57d8ff",
-            accent_soft: "rgba(87, 216, 255, 0.18)",
-            accent_warm: "#ffd447",
-            accent_pink: "#ff5f7d",
-            border: "rgba(104, 143, 166, 0.34)",
-            grid: "rgba(56, 74, 92, 0.58)",
-            shadow: "0 20px 48px rgba(4, 7, 12, 0.36)",
-            tooltip_bg: "rgba(7, 9, 15, 0.94)",
-            hero_from: "rgba(14, 18, 24, 0.96)",
-            hero_to: "rgba(19, 18, 28, 0.96)",
-            hero_glow_a: "rgba(255, 212, 71, 0.16)",
-            hero_glow_b: "rgba(87, 216, 255, 0.18)",
-            cloud_glow: "rgba(87, 216, 255, 0.12)",
-            cloud_to: "rgba(15, 19, 27, 0.96)",
-            sbai_glow: "rgba(255, 143, 31, 0.28)",
-            sbai_surface_top: "#0b0d12",
-            sbai_surface_bottom: "#251717",
-            sbai_border: "rgba(255, 192, 108, 0.26)",
-            sbai_text: "rgba(255, 236, 199, 0.96)",
-            sbai_muted: "rgba(255, 198, 123, 0.84)",
-            word_palette: [
-                "#57d8ff", "#ff8f1f", "#ffd447", "#ff5f7d", "#88e6ff", "#ffb356",
-            ],
-            fireworks_palette: ["#57d8ff", "#ff8f1f", "#ffd447", "#ff5f7d", "#88e6ff"],
+            bg: "#fffaf3",
+            bg_accent: "#ffefdf",
+            panel: "rgba(255, 255, 255, 0.93)",
+            panel_strong: "rgba(255, 247, 237, 0.99)",
+            panel_tint: "rgba(255, 236, 221, 0.92)",
+            muted: "#937465",
+            text: "#322015",
+            line: "#f08a24",
+            line_soft: "rgba(240, 138, 36, 0.18)",
+            area_top: "rgba(240, 138, 36, 0.24)",
+            area_bottom: "rgba(240, 138, 36, 0.05)",
+            accent: "#37bfdf",
+            accent_soft: "rgba(55, 191, 223, 0.16)",
+            accent_warm: "#f5cb54",
+            accent_pink: "#ff7081",
+            border: "rgba(238, 201, 173, 0.92)",
+            grid: "rgba(226, 192, 166, 0.82)",
+            shadow: "0 22px 44px rgba(214, 151, 99, 0.16)",
+            tooltip_bg: "rgba(255, 249, 243, 0.98)",
+            hero_from: "rgba(255, 248, 239, 0.99)",
+            hero_to: "rgba(255, 232, 209, 0.99)",
+            hero_glow_a: "rgba(245, 203, 84, 0.24)",
+            hero_glow_b: "rgba(55, 191, 223, 0.16)",
+            cloud_glow: "rgba(255, 188, 125, 0.2)",
+            cloud_to: "rgba(255, 243, 230, 0.99)",
+            sbai_glow: "rgba(240, 138, 36, 0.24)",
+            sbai_surface_top: "#fffaf2",
+            sbai_surface_bottom: "#ffe8d0",
+            sbai_border: "rgba(241, 170, 101, 0.44)",
+            sbai_text: "rgba(99, 52, 24, 0.98)",
+            sbai_muted: "rgba(145, 92, 53, 0.88)",
+            word_palette: ["#126f86", "#994d08", "#9a6500", "#a92d48", "#255f70", "#b75b20"],
+            fireworks_palette: ["#37bfdf", "#f08a24", "#f5cb54", "#ff7081", "#77ddef"],
         };
     }
 
     if sbai < 5.0 {
         return ReportTheme {
-            bg: "#0b0a0f",
-            bg_accent: "#1a1017",
-            panel: "rgba(15, 12, 18, 0.88)",
-            panel_strong: "rgba(18, 14, 20, 0.96)",
-            panel_tint: "rgba(36, 17, 24, 0.8)",
-            muted: "#b39aa3",
-            text: "#fff3ef",
-            line: "#ff5d3d",
-            line_soft: "rgba(255, 93, 61, 0.24)",
-            area_top: "rgba(255, 93, 61, 0.28)",
-            area_bottom: "rgba(255, 93, 61, 0.07)",
-            accent: "#4fdbff",
-            accent_soft: "rgba(79, 219, 255, 0.16)",
-            accent_warm: "#ffd54a",
-            accent_pink: "#ff4f7a",
-            border: "rgba(118, 69, 84, 0.8)",
-            grid: "rgba(77, 41, 55, 0.84)",
-            shadow: "0 24px 54px rgba(5, 4, 9, 0.42)",
-            tooltip_bg: "rgba(6, 6, 10, 0.96)",
-            hero_from: "rgba(18, 13, 19, 0.96)",
-            hero_to: "rgba(24, 13, 20, 0.96)",
-            hero_glow_a: "rgba(255, 213, 74, 0.14)",
-            hero_glow_b: "rgba(79, 219, 255, 0.12)",
-            cloud_glow: "rgba(79, 219, 255, 0.1)",
-            cloud_to: "rgba(20, 12, 18, 0.96)",
-            sbai_glow: "rgba(255, 93, 61, 0.34)",
-            sbai_surface_top: "#0a0a0e",
-            sbai_surface_bottom: "#4a1017",
-            sbai_border: "rgba(255, 173, 118, 0.26)",
-            sbai_text: "rgba(255, 238, 202, 0.97)",
-            sbai_muted: "rgba(255, 189, 138, 0.86)",
-            word_palette: [
-                "#4fdbff", "#ff5d3d", "#ffd54a", "#ff4f7a", "#8beaff", "#ff965a",
-            ],
-            fireworks_palette: ["#4fdbff", "#ff5d3d", "#ffd54a", "#ff4f7a", "#8beaff"],
+            bg: "#fff7f1",
+            bg_accent: "#ffe8dc",
+            panel: "rgba(255, 253, 250, 0.94)",
+            panel_strong: "rgba(255, 244, 236, 0.99)",
+            panel_tint: "rgba(255, 228, 219, 0.9)",
+            muted: "#9a6f6c",
+            text: "#3c1f1b",
+            line: "#ff6a48",
+            line_soft: "rgba(255, 106, 72, 0.22)",
+            area_top: "rgba(255, 106, 72, 0.28)",
+            area_bottom: "rgba(255, 106, 72, 0.08)",
+            accent: "#32c3df",
+            accent_soft: "rgba(50, 195, 223, 0.14)",
+            accent_warm: "#f8ca48",
+            accent_pink: "#ff5d82",
+            border: "rgba(236, 187, 174, 0.92)",
+            grid: "rgba(230, 180, 168, 0.86)",
+            shadow: "0 24px 48px rgba(218, 141, 115, 0.18)",
+            tooltip_bg: "rgba(255, 248, 243, 0.98)",
+            hero_from: "rgba(255, 245, 239, 0.99)",
+            hero_to: "rgba(255, 225, 216, 0.99)",
+            hero_glow_a: "rgba(248, 202, 72, 0.2)",
+            hero_glow_b: "rgba(50, 195, 223, 0.14)",
+            cloud_glow: "rgba(255, 120, 94, 0.14)",
+            cloud_to: "rgba(255, 239, 232, 0.99)",
+            sbai_glow: "rgba(255, 106, 72, 0.28)",
+            sbai_surface_top: "#fff7f1",
+            sbai_surface_bottom: "#ffd9c9",
+            sbai_border: "rgba(255, 154, 117, 0.46)",
+            sbai_text: "rgba(115, 42, 22, 0.98)",
+            sbai_muted: "rgba(161, 87, 56, 0.88)",
+            word_palette: ["#146c80", "#a14020", "#9a5e00", "#a32245", "#1d6070", "#b14f28"],
+            fireworks_palette: ["#32c3df", "#ff6a48", "#f8ca48", "#ff5d82", "#7ee0ef"],
         };
     }
 
     ReportTheme {
-        bg: "#07080b",
-        bg_accent: "#170b10",
-        panel: "rgba(14, 10, 14, 0.9)",
-        panel_strong: "rgba(17, 12, 16, 0.97)",
-        panel_tint: "rgba(49, 13, 21, 0.78)",
-        muted: "#c7a4ac",
-        text: "#fff4ef",
-        line: "#ff3b30",
-        line_soft: "rgba(255, 59, 48, 0.28)",
-        area_top: "rgba(255, 59, 48, 0.3)",
-        area_bottom: "rgba(255, 59, 48, 0.08)",
-        accent: "#46dcff",
-        accent_soft: "rgba(70, 220, 255, 0.18)",
-        accent_warm: "#ffd93d",
-        accent_pink: "#ff3f76",
-        border: "rgba(123, 45, 63, 0.86)",
-        grid: "rgba(82, 25, 41, 0.84)",
-        shadow: "0 26px 58px rgba(3, 3, 6, 0.48)",
-        tooltip_bg: "rgba(4, 4, 7, 0.97)",
-        hero_from: "rgba(18, 11, 15, 0.97)",
-        hero_to: "rgba(22, 11, 16, 0.97)",
-        hero_glow_a: "rgba(255, 217, 61, 0.14)",
-        hero_glow_b: "rgba(70, 220, 255, 0.1)",
-        cloud_glow: "rgba(70, 220, 255, 0.08)",
-        cloud_to: "rgba(18, 11, 15, 0.97)",
-        sbai_glow: "rgba(255, 59, 48, 0.4)",
-        sbai_surface_top: "#09090c",
-        sbai_surface_bottom: "#5d0914",
-        sbai_border: "rgba(255, 158, 105, 0.28)",
-        sbai_text: "rgba(255, 239, 201, 0.98)",
-        sbai_muted: "rgba(255, 184, 125, 0.88)",
-        word_palette: [
-            "#46dcff", "#ff3b30", "#ffd93d", "#ff3f76", "#8cecff", "#ff8e52",
-        ],
-        fireworks_palette: ["#46dcff", "#ff3b30", "#ffd93d", "#ff3f76", "#8cecff"],
+        bg: "#fff4ee",
+        bg_accent: "#ffe2d8",
+        panel: "rgba(255, 252, 248, 0.95)",
+        panel_strong: "rgba(255, 241, 235, 0.99)",
+        panel_tint: "rgba(255, 221, 214, 0.92)",
+        muted: "#a36c68",
+        text: "#481d18",
+        line: "#ff4c37",
+        line_soft: "rgba(255, 76, 55, 0.24)",
+        area_top: "rgba(255, 76, 55, 0.32)",
+        area_bottom: "rgba(255, 76, 55, 0.08)",
+        accent: "#30c7e5",
+        accent_soft: "rgba(48, 199, 229, 0.16)",
+        accent_warm: "#ffd23f",
+        accent_pink: "#ff477a",
+        border: "rgba(238, 174, 162, 0.94)",
+        grid: "rgba(229, 163, 149, 0.88)",
+        shadow: "0 26px 52px rgba(220, 129, 108, 0.2)",
+        tooltip_bg: "rgba(255, 246, 240, 0.98)",
+        hero_from: "rgba(255, 241, 236, 0.99)",
+        hero_to: "rgba(255, 219, 211, 0.99)",
+        hero_glow_a: "rgba(255, 210, 63, 0.22)",
+        hero_glow_b: "rgba(48, 199, 229, 0.12)",
+        cloud_glow: "rgba(255, 108, 84, 0.16)",
+        cloud_to: "rgba(255, 233, 226, 0.99)",
+        sbai_glow: "rgba(255, 76, 55, 0.30)",
+        sbai_surface_top: "#fff5f0",
+        sbai_surface_bottom: "#ffd3c8",
+        sbai_border: "rgba(255, 138, 106, 0.48)",
+        sbai_text: "rgba(122, 37, 20, 0.98)",
+        sbai_muted: "rgba(167, 79, 53, 0.9)",
+        word_palette: ["#0f6879", "#9a301b", "#8f5200", "#981c3d", "#185a67", "#a54524"],
+        fireworks_palette: ["#30c7e5", "#ff4c37", "#ffd23f", "#ff477a", "#89e6f5"],
     }
 }
 
