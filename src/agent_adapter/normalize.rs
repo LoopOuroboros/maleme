@@ -8,6 +8,30 @@ pub fn trim_to_owned(text: &str) -> String {
     text.trim().to_owned()
 }
 
+pub fn normalize_model_id(raw: &str) -> Option<String> {
+    let mut model = raw.trim();
+
+    if model.is_empty() {
+        return None;
+    }
+
+    while let Some((prefix, rest)) = model.split_once(':') {
+        if !is_provider_prefix(prefix) {
+            break;
+        }
+        model = rest.trim();
+    }
+
+    if model.is_empty()
+        || model.eq_ignore_ascii_case("unknown")
+        || model.eq_ignore_ascii_case("<synthetic>")
+    {
+        return None;
+    }
+
+    Some(model.to_owned())
+}
+
 pub fn normalize_codex_text(raw: &str) -> String {
     let trimmed = raw.trim();
 
@@ -53,7 +77,12 @@ pub fn normalize_claude_text(raw: &str) -> String {
 
 fn strip_claude_tool_echo(text: &str) -> &str {
     const TOOL_ECHO_PREFIX: &str = "Called the ";
-    const TOOL_ECHO_MARKERS: [&str; 4] = ["<path>", "<content>", "<type>file</type>", "<type>directory</type>"];
+    const TOOL_ECHO_MARKERS: [&str; 4] = [
+        "<path>",
+        "<content>",
+        "<type>file</type>",
+        "<type>directory</type>",
+    ];
 
     if !TOOL_ECHO_MARKERS.iter().any(|marker| text.contains(marker)) {
         return text;
@@ -75,6 +104,30 @@ fn is_control_only(text: &str) -> bool {
     let compact = visible.trim();
 
     compact.is_empty() || (compact.starts_with("[>") && compact.contains("rgb:"))
+}
+
+fn is_provider_prefix(prefix: &str) -> bool {
+    matches!(
+        prefix,
+        "anthropic"
+            | "azure"
+            | "azure-openai"
+            | "bedrock"
+            | "copilot"
+            | "deepseek"
+            | "github-copilot"
+            | "google"
+            | "groq"
+            | "lmstudio"
+            | "mistral"
+            | "ollama"
+            | "openai"
+            | "opencode"
+            | "openrouter"
+            | "perplexity"
+            | "vertex"
+            | "xai"
+    )
 }
 
 fn strip_ansi_sequences(text: &str) -> String {
@@ -102,7 +155,7 @@ fn strip_ansi_sequences(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_claude_text, normalize_codex_text};
+    use super::{normalize_claude_text, normalize_codex_text, normalize_model_id};
 
     #[test]
     fn drops_codex_injected_wrapper_text() {
@@ -137,7 +190,24 @@ mod tests {
     #[test]
     fn strips_claude_inline_tool_echo() {
         let input = "Please include these details.\nCalled the Read tool with the following input: {\"filePath\":\"/tmp/file\"}\n<path>/tmp/file</path>\n<type>file</type>\n<content>hello</content>";
-        assert_eq!(normalize_claude_text(input), "Please include these details.");
+        assert_eq!(
+            normalize_claude_text(input),
+            "Please include these details."
+        );
+    }
+
+    #[test]
+    fn normalizes_model_ids() {
+        assert_eq!(
+            normalize_model_id("openai:gpt-5.4").as_deref(),
+            Some("gpt-5.4")
+        );
+        assert_eq!(
+            normalize_model_id("github-copilot:claude-opus-4.5").as_deref(),
+            Some("claude-opus-4.5")
+        );
+        assert_eq!(normalize_model_id(" unknown "), None);
+        assert_eq!(normalize_model_id("<synthetic>"), None);
     }
 
     #[test]

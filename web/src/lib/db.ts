@@ -329,7 +329,7 @@ export async function upsertLeaderboardEntry(
     )
     .run();
 
-  await database
+  const submissionResult = await database
     .prepare(
       `
         INSERT INTO leaderboard_submissions (
@@ -351,4 +351,38 @@ export async function upsertLeaderboardEntry(
       updatedAt,
     )
     .run();
+
+  const submissionId = Number(submissionResult.meta.last_row_id || 0);
+
+  if (!submissionId || submission.modelSbai.length === 0) {
+    return;
+  }
+
+  const insertStatements = submission.modelSbai.map((entry) =>
+    database
+      .prepare(
+        `
+          INSERT INTO leaderboard_submission_model_sbai (
+            submission_id,
+            github_id,
+            model,
+            profanity_count,
+            tokens,
+            sbai,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .bind(
+        submissionId,
+        viewer.githubId,
+        entry.model,
+        entry.profanityCount,
+        entry.tokens,
+        Math.round(entry.sbai * 1000) / 1000,
+        updatedAt,
+      ),
+  );
+
+  await database.batch(insertStatements);
 }

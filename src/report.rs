@@ -9,7 +9,7 @@ use std::{
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use crate::{FuckDetector, UserMessage};
+use crate::{FuckDetector, ModelTokenCounts, UserMessage};
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -19,9 +19,25 @@ struct DailyCount {
     count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DailyModelSeries {
+    model: String,
+    points: Vec<DailyCount>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ModelSbai {
+    model: String,
+    profanity_count: i64,
+    token_count: i64,
+    sbai: f64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ReportData {
     daily_counts: Vec<DailyCount>,
+    daily_model_series: Vec<DailyModelSeries>,
+    model_sbai: Vec<ModelSbai>,
     word_counts: Vec<(String, i64)>,
     total_profanities: i64,
     total_tokens: i64,
@@ -71,9 +87,10 @@ struct ReportTheme {
 pub fn write_report_and_open(
     messages: &[UserMessage],
     tokens: i64,
+    model_tokens: &ModelTokenCounts,
     detector: &FuckDetector,
 ) -> Result<PathBuf, ReportError> {
-    let report = render_report(messages, tokens, detector)?;
+    let report = render_report(messages, tokens, model_tokens, detector)?;
     let output_path = downloads_dir()?.join(report_filename()?);
     fs::create_dir_all(output_path.parent().unwrap()).map_err(|source| ReportError::Io {
         path: output_path.parent().unwrap().to_path_buf(),
@@ -91,10 +108,12 @@ pub fn write_report_and_open(
 
 fn open_report(path: &Path) -> Result<(), ReportError> {
     let mut command = report_open_command(path);
-    let status = command.status().map_err(|source| ReportError::OpenBrowser {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let status = command
+        .status()
+        .map_err(|source| ReportError::OpenBrowser {
+            path: path.to_path_buf(),
+            source,
+        })?;
 
     if !status.success() {
         return Err(ReportError::OpenBrowserStatus {
@@ -130,12 +149,16 @@ fn report_open_command(path: &Path) -> Command {
 pub fn render_report(
     messages: &[UserMessage],
     tokens: i64,
+    model_tokens: &ModelTokenCounts,
     detector: &FuckDetector,
 ) -> Result<String, ReportError> {
-    let data = build_report_data(messages, tokens, detector)?;
-    let chart = render_line_chart(&data.daily_counts);
+    let data = build_report_data(messages, tokens, model_tokens, detector)?;
+    let chart = render_line_chart(&data.daily_counts, &data.daily_model_series);
     let word_cloud = render_word_cloud(&data.word_counts)?;
+    let model_sbai = render_model_sbai(&data.model_sbai);
     let submission_payload = render_submission_payload(&data)?;
+    let model_sbai_payload =
+        render_model_sbai_payload(&data.model_sbai).map_err(ReportError::WordCloudJson)?;
     let (sbai_state, sbai_copy) = sbai_state_copy(data.sbai);
     let theme = report_theme(data.sbai);
     let word_palette_json = serde_json::to_string(&theme.word_palette)
@@ -495,6 +518,69 @@ pub fn render_report(
       font-size: 13px;
       line-height: 1.3;
     }}
+    .model-sbai-block {{
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }}
+    .model-sbai-title {{
+      color: var(--sbai-text);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }}
+    .model-sbai-list {{
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 156px;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+      scrollbar-width: thin;
+    }}
+    .model-sbai-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 7px 9px;
+      border: 1px solid var(--sbai-border);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.34);
+    }}
+    .model-sbai-name {{
+      min-width: 0;
+      color: var(--sbai-text);
+      font-size: 13px;
+      line-height: 1.2;
+      font-weight: 700;
+      word-break: break-word;
+    }}
+    .model-sbai-metrics {{
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      flex-shrink: 0;
+    }}
+    .model-sbai-value {{
+      color: var(--sbai-text);
+      font-size: 15px;
+      line-height: 1;
+      font-weight: 900;
+      font-variant-numeric: tabular-nums;
+      font-family: "Orbitron", "Noto Sans SC", sans-serif;
+    }}
+    .model-sbai-meta {{
+      color: var(--sbai-muted);
+      font-size: 11px;
+      line-height: 1.2;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }}
     .layout {{
       display: grid;
       grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
@@ -693,6 +779,7 @@ pub fn render_report(
           <input type="hidden" name="profanityCount" value="{total_profanities}">
           <input type="hidden" name="tokens" value="{total_tokens}">
           <input type="hidden" name="sbai" value="{sbai:.3}">
+          <textarea hidden name="modelSbaiPayload">{model_sbai_payload}</textarea>
           <textarea hidden name="reportPayload">{submission_payload}</textarea>
           <button type="submit" class="submit-button">提交到 leaderboard 看看你有多能骂！</button>
         </form>
@@ -700,16 +787,15 @@ pub fn render_report(
       </div>
       <div class="panel sbai-card">
         <div class="sbai-header">
-          <div class="sbai-label">SBAI 指数</div>
+          <div class="sbai-label">SBAI 指数 / 每千万 tokens 的骂人次数</div>
           <div class="sbai-alert">{sbai_state}</div>
         </div>
-        <div class="sbai-kicker">AI 写得越自信</div>
         <div class="sbai-value-wrap">
           <div class="sbai-value number-roll" data-target-number="{sbai:.3}" data-decimals="3" data-display="0.000">0.000</div>
         </div>
         <div class="sbai-copy">{sbai_copy}</div>
         <div class="sbai-divider"></div>
-        <div class="sbai-footnote">每千万 tokens 的骂人次数</div>
+        {model_sbai}
       </div>
     </section>
 
@@ -735,6 +821,8 @@ pub fn render_report(
         areaBottom: rootStyles.getPropertyValue('--area-bottom').trim(),
         accent: rootStyles.getPropertyValue('--accent').trim(),
         accentSoft: rootStyles.getPropertyValue('--accent-soft').trim(),
+        accentWarm: rootStyles.getPropertyValue('--accent-warm').trim(),
+        accentPink: rootStyles.getPropertyValue('--accent-pink').trim(),
         border: rootStyles.getPropertyValue('--border').trim(),
         grid: rootStyles.getPropertyValue('--grid').trim(),
         muted: rootStyles.getPropertyValue('--muted').trim(),
@@ -862,8 +950,10 @@ pub fn render_report(
           return;
         }}
 
-        const points = JSON.parse(host.dataset.points || '[]');
-        if (!points.length) {{
+        const chartData = JSON.parse(host.dataset.series || '{{"labels":[],"series":[]}}');
+        const labels = chartData.labels || [];
+        const seriesEntries = chartData.series || [];
+        if (!labels.length || !seriesEntries.length) {{
           return;
         }}
 
@@ -873,28 +963,58 @@ pub fn render_report(
           }}
 
           const chart = echarts.init(host, null, {{ renderer: 'canvas' }});
-          const labels = points.map(point => point.label);
-          const values = points.map(point => point.count);
+          const linePalette = [
+            theme.line,
+            theme.accent,
+            theme.accentWarm,
+            theme.accentPink,
+            '#1f8a70',
+            '#1d6fa5',
+            '#b6452c',
+            '#7b5cff'
+          ];
 
           chart.setOption({{
             animationDuration: 700,
             animationEasing: 'cubicOut',
+            legend: {{
+              type: 'scroll',
+              top: 10,
+              left: 8,
+              right: 22,
+              itemWidth: 12,
+              itemHeight: 12,
+              textStyle: {{
+                color: theme.muted
+              }},
+              pageIconColor: theme.line,
+              pageTextStyle: {{
+                color: theme.muted
+              }}
+            }},
             tooltip: {{
               trigger: 'axis',
               backgroundColor: theme.tooltipBg,
               borderWidth: 0,
               textStyle: {{
-                color: '#ffffff'
+                color: '#2c2117'
               }},
               formatter(params) {{
-                const point = params[0];
-                return `${{point.axisValue}}<br/>你这一天骂了 AI ${{point.data}} 次`;
+                const visible = params.filter(point => Number(point.data || 0) > 0);
+                if (!visible.length) {{
+                  return `${{params[0].axisValue}}<br/>这一天没有骂到 AI`;
+                }}
+
+                return [
+                  params[0].axisValue,
+                  ...visible.map(point => `${{point.marker}}${{point.seriesName}}: ${{point.data}} 次`)
+                ].join('<br/>');
               }}
             }},
             grid: {{
               left: 46,
               right: 18,
-              top: 16,
+              top: 64,
               bottom: 34,
               containLabel: true
             }},
@@ -947,30 +1067,45 @@ pub fn render_report(
                 }}
               }}
             ],
-            series: [{{
-              type: 'line',
-              data: values,
-              smooth: 0.22,
-              symbol: 'circle',
-              symbolSize: 8,
-              showSymbol: true,
-              sampling: 'lttb',
-              lineStyle: {{
-                color: theme.line,
-                width: 3
-              }},
-              itemStyle: {{
-                color: theme.accent,
-                borderColor: '#ffffff',
-                borderWidth: 2
-              }},
-              areaStyle: {{
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  {{ offset: 0, color: theme.areaTop }},
-                  {{ offset: 1, color: theme.areaBottom }}
-                ])
+            series: seriesEntries.map((entry, index) => {{
+              const color = linePalette[index % linePalette.length];
+              const isTotal = Boolean(entry.isTotal);
+              const series = {{
+                name: entry.name,
+                type: 'line',
+                data: entry.data,
+                smooth: 0.22,
+                symbol: 'circle',
+                symbolSize: isTotal ? 8 : 7,
+                showSymbol: false,
+                sampling: 'lttb',
+                emphasis: {{
+                  focus: 'series'
+                }},
+                lineStyle: {{
+                  color,
+                  width: isTotal ? 3.5 : 2.5,
+                  type: isTotal ? 'solid' : 'dashed',
+                  opacity: isTotal ? 1 : 0.92
+                }},
+                itemStyle: {{
+                  color,
+                  borderColor: '#ffffff',
+                  borderWidth: 1.5
+                }}
+              }};
+
+              if (isTotal) {{
+                series.areaStyle = {{
+                  color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    {{ offset: 0, color: theme.areaTop }},
+                    {{ offset: 1, color: theme.areaBottom }}
+                  ])
+                }};
               }}
-            }}]
+
+              return series;
+            }})
           }});
 
           const resizeChart = () => chart.resize();
@@ -1282,9 +1417,11 @@ pub fn render_report(
         total_tokens = data.total_tokens,
         sbai = data.sbai,
         submission_payload = submission_payload,
+        model_sbai_payload = model_sbai_payload,
         headline = report_headline(&data.range_start, &data.range_end, data.total_profanities),
         chart = chart,
         word_cloud = word_cloud,
+        model_sbai = model_sbai,
         sbai_state = sbai_state,
         sbai_copy = sbai_copy,
         word_palette_json = word_palette_json,
@@ -1327,11 +1464,14 @@ pub fn render_report(
 fn build_report_data(
     messages: &[UserMessage],
     tokens: i64,
+    model_tokens: &ModelTokenCounts,
     detector: &FuckDetector,
 ) -> Result<ReportData, ReportError> {
     if messages.is_empty() {
         return Ok(ReportData {
             daily_counts: Vec::new(),
+            daily_model_series: Vec::new(),
+            model_sbai: Vec::new(),
             word_counts: Vec::new(),
             total_profanities: 0,
             total_tokens: tokens,
@@ -1344,6 +1484,8 @@ fn build_report_data(
     }
 
     let mut daily_counts = BTreeMap::new();
+    let mut daily_model_counts: BTreeMap<String, BTreeMap<i64, i64>> = BTreeMap::new();
+    let mut profanity_counts_by_model: BTreeMap<String, i64> = BTreeMap::new();
     let mut word_counts = BTreeMap::new();
     let mut total_profanities = 0_i64;
     let mut min_day = messages[0].time.div_euclid(DAY_MS);
@@ -1369,6 +1511,17 @@ fn build_report_data(
         }
 
         *daily_counts.entry(day).or_insert(0) += daily_total;
+
+        if daily_total > 0 {
+            if let Some(model) = message.model.as_ref() {
+                *profanity_counts_by_model.entry(model.clone()).or_insert(0) += daily_total;
+                *daily_model_counts
+                    .entry(model.clone())
+                    .or_default()
+                    .entry(day)
+                    .or_insert(0) += daily_total;
+            }
+        }
     }
 
     let mut daily_series = Vec::new();
@@ -1382,6 +1535,59 @@ fn build_report_data(
         });
     }
 
+    let mut daily_model_series = daily_model_counts
+        .into_iter()
+        .map(|(model, counts)| {
+            let mut total = 0_i64;
+            let mut points = Vec::new();
+
+            for day in min_day..=max_day {
+                let count = *counts.get(&day).unwrap_or(&0);
+                total += count;
+                points.push(DailyCount {
+                    label: day_label(day)?,
+                    count,
+                });
+            }
+
+            Ok((total, DailyModelSeries { model, points }))
+        })
+        .collect::<Result<Vec<_>, ReportError>>()?;
+    daily_model_series.sort_by(|left, right| {
+        right
+            .0
+            .cmp(&left.0)
+            .then_with(|| left.1.model.cmp(&right.1.model))
+    });
+    let daily_model_series = daily_model_series
+        .into_iter()
+        .filter(|(total, _)| *total > 0)
+        .map(|(_, series)| series)
+        .collect();
+    let mut model_sbai = model_tokens
+        .iter()
+        .filter(|(_, token_count)| **token_count > 0)
+        .map(|(model, token_count)| {
+            let profanity_count = profanity_counts_by_model.get(model).copied().unwrap_or(0);
+            let sbai = profanity_count as f64 * 10_000_000.0 / *token_count as f64;
+
+            ModelSbai {
+                model: model.clone(),
+                profanity_count,
+                token_count: *token_count,
+                sbai,
+            }
+        })
+        .collect::<Vec<_>>();
+    model_sbai.sort_by(|left, right| {
+        right
+            .sbai
+            .partial_cmp(&left.sbai)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| right.profanity_count.cmp(&left.profanity_count))
+            .then_with(|| left.model.cmp(&right.model))
+    });
+
     let mut word_series = word_counts.into_iter().collect::<Vec<_>>();
     word_series.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
 
@@ -1393,6 +1599,8 @@ fn build_report_data(
 
     Ok(ReportData {
         daily_counts: daily_series,
+        daily_model_series,
+        model_sbai,
         word_counts: word_series,
         total_profanities,
         total_tokens: tokens,
@@ -1459,7 +1667,9 @@ fn report_theme(sbai: f64) -> ReportTheme {
             sbai_border: "rgba(244, 194, 110, 0.42)",
             sbai_text: "rgba(92, 55, 26, 0.98)",
             sbai_muted: "rgba(129, 92, 49, 0.86)",
-            word_palette: ["#0d7282", "#945700", "#966b00", "#a12847", "#145f6c", "#b65a16"],
+            word_palette: [
+                "#0d7282", "#945700", "#966b00", "#a12847", "#145f6c", "#b65a16",
+            ],
             fireworks_palette: ["#29b7cc", "#f5a100", "#f4c95d", "#ff6f7d", "#61d5e2"],
         };
     }
@@ -1497,7 +1707,9 @@ fn report_theme(sbai: f64) -> ReportTheme {
             sbai_border: "rgba(241, 170, 101, 0.44)",
             sbai_text: "rgba(99, 52, 24, 0.98)",
             sbai_muted: "rgba(145, 92, 53, 0.88)",
-            word_palette: ["#126f86", "#994d08", "#9a6500", "#a92d48", "#255f70", "#b75b20"],
+            word_palette: [
+                "#126f86", "#994d08", "#9a6500", "#a92d48", "#255f70", "#b75b20",
+            ],
             fireworks_palette: ["#37bfdf", "#f08a24", "#f5cb54", "#ff7081", "#77ddef"],
         };
     }
@@ -1535,7 +1747,9 @@ fn report_theme(sbai: f64) -> ReportTheme {
             sbai_border: "rgba(255, 154, 117, 0.46)",
             sbai_text: "rgba(115, 42, 22, 0.98)",
             sbai_muted: "rgba(161, 87, 56, 0.88)",
-            word_palette: ["#146c80", "#a14020", "#9a5e00", "#a32245", "#1d6070", "#b14f28"],
+            word_palette: [
+                "#146c80", "#a14020", "#9a5e00", "#a32245", "#1d6070", "#b14f28",
+            ],
             fireworks_palette: ["#32c3df", "#ff6a48", "#f8ca48", "#ff5d82", "#7ee0ef"],
         };
     }
@@ -1572,7 +1786,9 @@ fn report_theme(sbai: f64) -> ReportTheme {
         sbai_border: "rgba(255, 138, 106, 0.48)",
         sbai_text: "rgba(122, 37, 20, 0.98)",
         sbai_muted: "rgba(167, 79, 53, 0.9)",
-        word_palette: ["#0f6879", "#9a301b", "#8f5200", "#981c3d", "#185a67", "#a54524"],
+        word_palette: [
+            "#0f6879", "#9a301b", "#8f5200", "#981c3d", "#185a67", "#a54524",
+        ],
         fireworks_palette: ["#30c7e5", "#ff4c37", "#ffd23f", "#ff477a", "#89e6f5"],
     }
 }
@@ -1593,26 +1809,39 @@ fn sbai_state_copy(sbai: f64) -> (&'static str, &'static str) {
     ("彻底爆炸", "已经不是调试，是一场精神消耗战。")
 }
 
-fn render_line_chart(daily_counts: &[DailyCount]) -> String {
+fn render_line_chart(
+    daily_counts: &[DailyCount],
+    daily_model_series: &[DailyModelSeries],
+) -> String {
     if daily_counts.is_empty() {
         return r#"<div class="empty">没有聊天输入数据。</div>"#.to_owned();
     }
 
-    let points = daily_counts
+    let labels = daily_counts
         .iter()
-        .map(|point| {
-            serde_json::json!({
-                "label": point.label,
-                "count": point.count,
-            })
-        })
+        .map(|point| point.label.clone())
         .collect::<Vec<_>>();
-    let points_json = serde_json::to_string(&points)
-        .unwrap()
-        .replace("</", "<\\/");
+    let mut series = vec![serde_json::json!({
+        "name": "全部",
+        "data": daily_counts.iter().map(|point| point.count).collect::<Vec<_>>(),
+        "isTotal": true,
+    })];
+    series.extend(daily_model_series.iter().map(|series| {
+        serde_json::json!({
+            "name": series.model,
+            "data": series.points.iter().map(|point| point.count).collect::<Vec<_>>(),
+            "isTotal": false,
+        })
+    }));
+    let points_json = serde_json::to_string(&serde_json::json!({
+        "labels": labels,
+        "series": series,
+    }))
+    .unwrap()
+    .replace("</", "<\\/");
 
     format!(
-        r#"<div id="daily-chart" class="chart-host" data-points='{}' aria-label="daily profanity chart"></div><div id="daily-chart-fallback" class="chart-fallback">折线图加载失败。</div>"#,
+        r#"<div id="daily-chart" class="chart-host" data-series='{}' aria-label="daily profanity chart by model"></div><div id="daily-chart-fallback" class="chart-fallback">折线图加载失败。</div>"#,
         points_json
     )
 }
@@ -1647,6 +1876,48 @@ fn render_word_cloud(word_counts: &[(String, i64)]) -> Result<String, ReportErro
     ))
 }
 
+fn render_model_sbai(model_sbai: &[ModelSbai]) -> String {
+    if model_sbai.is_empty() {
+        return String::new();
+    }
+
+    let rows = model_sbai
+        .iter()
+        .take(4)
+        .map(|entry| {
+            format!(
+                r#"<div class="model-sbai-row"><div class="model-sbai-name">{}</div><div class="model-sbai-metrics"><span class="model-sbai-value">{:.3}</span><span class="model-sbai-meta">{} / {}</span></div></div>"#,
+                entry.model,
+                entry.sbai,
+                entry.profanity_count,
+                entry.token_count,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    format!(
+        r#"<div class="model-sbai-block"><div class="model-sbai-list">{rows}</div></div>"#
+    )
+}
+
+fn render_model_sbai_payload(model_sbai: &[ModelSbai]) -> Result<String, serde_json::Error> {
+    serde_json::to_string(
+        &model_sbai
+            .iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "model": entry.model,
+                    "profanityCount": entry.profanity_count,
+                    "tokens": entry.token_count,
+                    "sbai": entry.sbai,
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .map(|json| json.replace("</", "<\\/"))
+}
+
 fn render_submission_payload(data: &ReportData) -> Result<String, ReportError> {
     let payload = serde_json::json!({
         "rangeStart": data.range_start,
@@ -1655,10 +1926,29 @@ fn render_submission_payload(data: &ReportData) -> Result<String, ReportError> {
         "profanityCount": data.total_profanities,
         "tokens": data.total_tokens,
         "sbai": data.sbai,
+        "modelSbai": data.model_sbai.iter().map(|entry| {
+            serde_json::json!({
+                "model": entry.model,
+                "profanityCount": entry.profanity_count,
+                "tokens": entry.token_count,
+                "sbai": entry.sbai,
+            })
+        }).collect::<Vec<_>>(),
         "dailyCounts": data.daily_counts.iter().map(|point| {
             serde_json::json!({
                 "label": point.label,
                 "count": point.count,
+            })
+        }).collect::<Vec<_>>(),
+        "dailyModelSeries": data.daily_model_series.iter().map(|series| {
+            serde_json::json!({
+                "model": series.model,
+                "points": series.points.iter().map(|point| {
+                    serde_json::json!({
+                        "label": point.label,
+                        "count": point.count,
+                    })
+                }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
         "wordCounts": data.word_counts.iter().map(|(term, count)| {
@@ -1729,6 +2019,8 @@ pub enum ReportError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::{AdapterKind, FuckDetector, UserMessage};
 
     use super::{build_report_data, render_report, report_headline, sbai_state_copy};
@@ -1736,31 +2028,49 @@ mod tests {
     #[test]
     fn builds_daily_counts_with_gaps() {
         let detector = FuckDetector::from_lexicon("fuck\n傻逼").unwrap();
+        let model_tokens = BTreeMap::from([
+            ("gpt-5.4".to_owned(), 2_i64),
+            ("claude-opus-4.5".to_owned(), 4_i64),
+        ]);
         let messages = vec![
             UserMessage {
                 adapter: AdapterKind::Codex,
+                model: Some("gpt-5.4".to_owned()),
                 text: "fuck fuck".to_owned(),
                 time: 0,
             },
             UserMessage {
                 adapter: AdapterKind::Claude,
+                model: None,
                 text: "hello".to_owned(),
                 time: 86_400_000,
             },
             UserMessage {
                 adapter: AdapterKind::OpenCode,
+                model: Some("claude-opus-4.5".to_owned()),
                 text: "傻逼".to_owned(),
                 time: 172_800_000,
             },
         ];
 
-        let data = build_report_data(&messages, 4, &detector).unwrap();
+        let data = build_report_data(&messages, 4, &model_tokens, &detector).unwrap();
 
         assert_eq!(data.total_profanities, 3);
         assert_eq!(data.daily_counts.len(), 3);
         assert_eq!(data.daily_counts[0].count, 2);
         assert_eq!(data.daily_counts[1].count, 0);
         assert_eq!(data.daily_counts[2].count, 1);
+        assert_eq!(data.daily_model_series.len(), 2);
+        assert_eq!(data.daily_model_series[0].model, "gpt-5.4");
+        assert_eq!(data.daily_model_series[0].points[0].count, 2);
+        assert_eq!(data.daily_model_series[0].points[1].count, 0);
+        assert_eq!(data.daily_model_series[1].model, "claude-opus-4.5");
+        assert_eq!(data.daily_model_series[1].points[2].count, 1);
+        assert_eq!(data.model_sbai.len(), 2);
+        assert_eq!(data.model_sbai[0].model, "gpt-5.4");
+        assert_eq!(data.model_sbai[0].profanity_count, 2);
+        assert_eq!(data.model_sbai[0].token_count, 2);
+        assert_eq!(data.model_sbai[0].sbai, 10_000_000.0);
         assert_eq!(data.word_counts[0], ("fuck".to_owned(), 2));
         assert_eq!(data.word_counts[1], ("傻逼".to_owned(), 1));
         assert_eq!(data.sbai, 7_500_000.0);
@@ -1771,13 +2081,15 @@ mod tests {
     #[test]
     fn renders_expected_sections() {
         let detector = FuckDetector::from_lexicon("fuck").unwrap();
+        let model_tokens = BTreeMap::from([("gpt-5.4".to_owned(), 2_i64)]);
         let messages = vec![UserMessage {
             adapter: AdapterKind::Codex,
+            model: Some("gpt-5.4".to_owned()),
             text: "fuck".to_owned(),
             time: 0,
         }];
 
-        let html = render_report(&messages, 2, &detector).unwrap();
+        let html = render_report(&messages, 2, &model_tokens, &detector).unwrap();
 
         assert!(html.contains("SBAI 指数"));
         assert!(html.contains("你这一天骂了 AI 多少次！"));
@@ -1794,6 +2106,10 @@ mod tests {
         assert!(html.contains("提交到 leaderboard 看看你有多能骂！"));
         assert!(html.contains("https://leaderboard.sbai.uk/submit"));
         assert!(html.contains("name=\"reportPayload\""));
+        assert!(html.contains("name=\"modelSbaiPayload\""));
+        assert!(html.contains("\"modelSbai\""));
+        assert!(html.contains("data-series='"));
+        assert!(html.contains("\"dailyModelSeries\""));
         assert!(html.contains("\"wordCounts\""));
     }
 

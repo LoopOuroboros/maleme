@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
@@ -9,8 +10,9 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::task;
 
 use super::{
-    AdapterError, AdapterKind, AgentAdapter, UserMessage, UserMessageStream,
-    normalize::normalize_codex_text, stream_messages,
+    AdapterError, AdapterKind, AgentAdapter, ModelTokenCounts, UserMessage, UserMessageStream,
+    normalize::{normalize_codex_text, normalize_model_id},
+    stream_messages,
 };
 
 #[derive(Debug, Clone)]
@@ -69,6 +71,7 @@ impl CodexAdapter {
     ) -> Result<Vec<UserMessage>, AdapterError> {
         let sessions_dir = self.sessions_dir();
         let archived_sessions_dir = self.archived_sessions_dir();
+        let state_db_path = self.state_db_path();
         task::spawn_blocking(move || {
             let mut session_paths = Vec::new();
 
@@ -83,7 +86,8 @@ impl CodexAdapter {
             session_paths.sort();
 
             let total_files = session_paths.len();
-            let mut messages = Vec::new();
+            let mut messages: Vec<UserMessage> = Vec::new();
+            let session_models = read_session_models_from_state_db(&state_db_path)?;
 
             for (index, path) in session_paths.into_iter().enumerate() {
                 progress.set_message(format!(
@@ -92,76 +96,11 @@ impl CodexAdapter {
                     total_files,
                     path.file_name().unwrap().to_string_lossy()
                 ));
-                let contents = fs::read_to_string(&path).map_err(|source| AdapterError::Io {
-                    path: path.clone(),
-                    source,
-                })?;
-                let mut legacy_timestamp_ms = 0_i64;
-
-                for (line_index, raw_line) in contents.lines().enumerate() {
-                    let line_number = line_index + 1;
-                    let line: CodexLine = serde_json::from_str(raw_line).map_err(|source| {
-                        AdapterError::InvalidJsonLine {
-                            path: path.clone(),
-                            line: line_number,
-                            source,
-                        }
-                    })?;
-
-                    match line {
-                        CodexLine::LegacySessionMeta(meta) => {
-                            let datetime = OffsetDateTime::parse(&meta.timestamp, &Rfc3339)
-                                .map_err(|source| AdapterError::InvalidTimestamp {
-                                    path: path.clone(),
-                                    line: line_number,
-                                    value: meta.timestamp.clone(),
-                                    source,
-                                })?;
-                            legacy_timestamp_ms =
-                                (datetime.unix_timestamp_nanos() / 1_000_000) as i64;
-                        }
-                        CodexLine::LegacyUserMessage(line) => {
-                            if line.role == "user" {
-                                for content in line.content {
-                                    let text = normalize_codex_text(&content.text);
-
-                                    if !text.is_empty() {
-                                        messages.push(UserMessage {
-                                            adapter: AdapterKind::Codex,
-                                            text,
-                                            time: legacy_timestamp_ms,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        CodexLine::NewUserMessage(line) => {
-                            if line.payload.item_type == "message" && line.payload.role == "user" {
-                                let datetime = OffsetDateTime::parse(&line.timestamp, &Rfc3339)
-                                    .map_err(|source| AdapterError::InvalidTimestamp {
-                                        path: path.clone(),
-                                        line: line_number,
-                                        value: line.timestamp.clone(),
-                                        source,
-                                    })?;
-
-                                for content in line.payload.content {
-                                    let text = normalize_codex_text(&content.text);
-
-                                    if !text.is_empty() {
-                                        messages.push(UserMessage {
-                                            adapter: AdapterKind::Codex,
-                                            text,
-                                            time: (datetime.unix_timestamp_nanos() / 1_000_000)
-                                                as i64,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        CodexLine::LegacyStateRecord(_) | CodexLine::Ignored(_) => {}
-                    }
-                }
+                let session_model = session_models
+                    .get(&path)
+                    .cloned()
+                    .or_else(|| session_models.get(&canonicalize_lossy(&path)).cloned());
+                messages.extend(parse_session_file(&path, session_model)?);
 
                 progress.inc(1);
             }
@@ -181,6 +120,7 @@ impl AgentAdapter for CodexAdapter {
     async fn poll(&self) -> Result<UserMessageStream, AdapterError> {
         let sessions_dir = self.sessions_dir();
         let archived_sessions_dir = self.archived_sessions_dir();
+        let state_db_path = self.state_db_path();
         let messages = task::spawn_blocking(move || {
             let mut session_paths = Vec::new();
 
@@ -195,78 +135,14 @@ impl AgentAdapter for CodexAdapter {
             session_paths.sort();
 
             let mut messages = Vec::new();
+            let session_models = read_session_models_from_state_db(&state_db_path)?;
 
             for path in session_paths {
-                let contents = fs::read_to_string(&path).map_err(|source| AdapterError::Io {
-                    path: path.clone(),
-                    source,
-                })?;
-                let mut legacy_timestamp_ms = 0_i64;
-
-                for (index, raw_line) in contents.lines().enumerate() {
-                    let line_number = index + 1;
-                    let line: CodexLine = serde_json::from_str(raw_line).map_err(|source| {
-                        AdapterError::InvalidJsonLine {
-                            path: path.clone(),
-                            line: line_number,
-                            source,
-                        }
-                    })?;
-
-                    match line {
-                        CodexLine::LegacySessionMeta(meta) => {
-                            let datetime = OffsetDateTime::parse(&meta.timestamp, &Rfc3339)
-                                .map_err(|source| AdapterError::InvalidTimestamp {
-                                    path: path.clone(),
-                                    line: line_number,
-                                    value: meta.timestamp.clone(),
-                                    source,
-                                })?;
-                            legacy_timestamp_ms =
-                                (datetime.unix_timestamp_nanos() / 1_000_000) as i64;
-                        }
-                        CodexLine::LegacyUserMessage(line) => {
-                            if line.role == "user" {
-                                for content in line.content {
-                                    let text = normalize_codex_text(&content.text);
-
-                                    if !text.is_empty() {
-                                        messages.push(UserMessage {
-                                            adapter: AdapterKind::Codex,
-                                            text,
-                                            time: legacy_timestamp_ms,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        CodexLine::NewUserMessage(line) => {
-                            if line.payload.item_type == "message" && line.payload.role == "user" {
-                                let datetime = OffsetDateTime::parse(&line.timestamp, &Rfc3339)
-                                    .map_err(|source| AdapterError::InvalidTimestamp {
-                                        path: path.clone(),
-                                        line: line_number,
-                                        value: line.timestamp.clone(),
-                                        source,
-                                    })?;
-
-                                for content in line.payload.content {
-                                    let text = normalize_codex_text(&content.text);
-
-                                    if !text.is_empty() {
-                                        messages.push(UserMessage {
-                                            adapter: AdapterKind::Codex,
-                                            text,
-                                            time: (datetime.unix_timestamp_nanos() / 1_000_000)
-                                                as i64,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        CodexLine::LegacyStateRecord(_) | CodexLine::Ignored(_) => {}
-                    }
-                }
+                let session_model = session_models
+                    .get(&path)
+                    .cloned()
+                    .or_else(|| session_models.get(&canonicalize_lossy(&path)).cloned());
+                messages.extend(parse_session_file(&path, session_model)?);
             }
 
             Ok(messages)
@@ -306,6 +182,264 @@ impl AgentAdapter for CodexAdapter {
 
         Ok(total)
     }
+
+    async fn tokens_by_model(&self) -> Result<ModelTokenCounts, AdapterError> {
+        let db_path = self.state_db_path();
+        task::spawn_blocking(move || read_model_tokens_from_state_db(&db_path))
+            .await
+            .map_err(AdapterError::Join)?
+    }
+}
+
+fn parse_session_file(
+    path: &Path,
+    session_model: Option<String>,
+) -> Result<Vec<UserMessage>, AdapterError> {
+    let contents = fs::read_to_string(path).map_err(|source| AdapterError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut messages: Vec<UserMessage> = Vec::new();
+    let mut legacy_timestamp_ms = 0_i64;
+    let mut current_model = session_model.and_then(|model| normalize_model_id(&model));
+    let mut pending_message_indexes: Vec<usize> = Vec::new();
+
+    for (index, raw_line) in contents.lines().enumerate() {
+        let line_number = index + 1;
+        let raw: serde_json::Value =
+            serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                path: path.to_path_buf(),
+                line: line_number,
+                source,
+            })?;
+        let line_type = raw.get("type").and_then(serde_json::Value::as_str);
+
+        if line_type == Some("turn_context") {
+            let normalized_model = raw
+                .get("payload")
+                .and_then(|payload| payload.get("model"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(normalize_model_id);
+            current_model = normalized_model.clone();
+            for message_index in pending_message_indexes.drain(..) {
+                messages[message_index].model = normalized_model.clone();
+            }
+            continue;
+        }
+
+        if line_type == Some("response_item")
+            && raw
+                .get("payload")
+                .and_then(|payload| payload.get("type"))
+                .and_then(serde_json::Value::as_str)
+                == Some("message")
+            && raw
+                .get("payload")
+                .and_then(|payload| payload.get("role"))
+                .and_then(serde_json::Value::as_str)
+                == Some("user")
+        {
+            let timestamp = required_string(&raw, &["timestamp"], path, line_number)?;
+            let datetime = OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|source| {
+                AdapterError::InvalidTimestamp {
+                    path: path.to_path_buf(),
+                    line: line_number,
+                    value: timestamp.to_owned(),
+                    source,
+                }
+            })?;
+            let content = raw
+                .get("payload")
+                .and_then(|payload| payload.get("content"))
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+
+            for item in content {
+                let Some(text) = item.get("text").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let text = normalize_codex_text(text);
+
+                if !text.is_empty() {
+                    messages.push(UserMessage {
+                        adapter: AdapterKind::Codex,
+                        model: current_model.clone(),
+                        text,
+                        time: (datetime.unix_timestamp_nanos() / 1_000_000) as i64,
+                    });
+                    pending_message_indexes.push(messages.len() - 1);
+                }
+            }
+            continue;
+        }
+
+        if line_type == Some("message")
+            && raw.get("role").and_then(serde_json::Value::as_str) == Some("user")
+        {
+            let content = raw
+                .get("content")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+
+            for item in content {
+                let Some(text) = item.get("text").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let text = normalize_codex_text(text);
+
+                if !text.is_empty() {
+                    messages.push(UserMessage {
+                        adapter: AdapterKind::Codex,
+                        model: current_model.clone(),
+                        text,
+                        time: legacy_timestamp_ms,
+                    });
+                }
+            }
+            continue;
+        }
+
+        if raw.get("git").is_some() && raw.get("timestamp").is_some() {
+            let timestamp = required_string(&raw, &["timestamp"], path, line_number)?;
+            let datetime = OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|source| {
+                AdapterError::InvalidTimestamp {
+                    path: path.to_path_buf(),
+                    line: line_number,
+                    value: timestamp.to_owned(),
+                    source,
+                }
+            })?;
+            legacy_timestamp_ms = (datetime.unix_timestamp_nanos() / 1_000_000) as i64;
+        }
+    }
+
+    Ok(messages)
+}
+
+fn required_string<'a>(
+    raw: &'a serde_json::Value,
+    path_segments: &[&str],
+    path: &Path,
+    line_number: usize,
+) -> Result<&'a str, AdapterError> {
+    let mut current = raw;
+
+    for segment in path_segments {
+        current = current
+            .get(*segment)
+            .ok_or_else(|| AdapterError::InvalidJsonLine {
+                path: path.to_path_buf(),
+                line: line_number,
+                source: serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("missing field {}", path_segments.join(".")),
+                )),
+            })?;
+    }
+
+    current
+        .as_str()
+        .ok_or_else(|| AdapterError::InvalidJsonLine {
+            path: path.to_path_buf(),
+            line: line_number,
+            source: serde_json::Error::io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("field {} is not a string", path_segments.join(".")),
+            )),
+        })
+}
+
+fn read_session_models_from_state_db(
+    db_path: &Path,
+) -> Result<BTreeMap<PathBuf, String>, AdapterError> {
+    if !db_path.exists() {
+        return Ok(BTreeMap::new());
+    }
+
+    let connection =
+        rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|source| AdapterError::SqliteOpen {
+                path: db_path.to_path_buf(),
+                source,
+            })?;
+    let mut statement = connection
+        .prepare("SELECT rollout_path, model FROM threads WHERE model IS NOT NULL AND model != ''")
+        .map_err(|source| AdapterError::SqliteQuery {
+            path: db_path.to_path_buf(),
+            source,
+        })?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|source| AdapterError::SqliteQuery {
+            path: db_path.to_path_buf(),
+            source,
+        })?;
+    let mut models = BTreeMap::new();
+
+    for row in rows {
+        let (rollout_path, model) = row.map_err(|source| AdapterError::SqliteQuery {
+            path: db_path.to_path_buf(),
+            source,
+        })?;
+        let Some(model) = normalize_model_id(&model) else {
+            continue;
+        };
+        models.insert(PathBuf::from(&rollout_path), model.clone());
+        models.insert(canonicalize_lossy(Path::new(&rollout_path)), model);
+    }
+
+    Ok(models)
+}
+
+fn read_model_tokens_from_state_db(db_path: &Path) -> Result<ModelTokenCounts, AdapterError> {
+    if !db_path.exists() {
+        return Ok(BTreeMap::new());
+    }
+
+    let connection =
+        rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|source| AdapterError::SqliteOpen {
+                path: db_path.to_path_buf(),
+                source,
+            })?;
+    let mut statement = connection
+        .prepare(
+            "SELECT model, COALESCE(SUM(tokens_used), 0) FROM threads WHERE model IS NOT NULL AND model != '' GROUP BY model",
+        )
+        .map_err(|source| AdapterError::SqliteQuery {
+            path: db_path.to_path_buf(),
+            source,
+        })?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|source| AdapterError::SqliteQuery {
+            path: db_path.to_path_buf(),
+            source,
+        })?;
+    let mut totals = BTreeMap::new();
+
+    for row in rows {
+        let (model, tokens) = row.map_err(|source| AdapterError::SqliteQuery {
+            path: db_path.to_path_buf(),
+            source,
+        })?;
+        let Some(model) = normalize_model_id(&model) else {
+            continue;
+        };
+        *totals.entry(model).or_insert(0) += tokens;
+    }
+
+    Ok(totals)
+}
+
+fn canonicalize_lossy(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn collect_jsonl_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), AdapterError> {
@@ -338,6 +472,12 @@ enum CodexLine {
     LegacyUserMessage(CodexLegacyUserMessageLine),
     LegacyStateRecord(CodexLegacyStateRecord),
     Ignored(CodexIgnoredLine),
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexLineKind {
+    #[serde(default, rename = "type")]
+    line_type: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -375,6 +515,22 @@ struct CodexNewUserMessagePayload {
     item_type: String,
     role: String,
     content: Vec<CodexMessageContent>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CodexTurnContextLine {
+    #[serde(rename = "timestamp")]
+    _timestamp: String,
+    #[serde(rename = "type")]
+    _line_type: String,
+    payload: CodexTurnContextPayload,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CodexTurnContextPayload {
+    model: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -427,6 +583,7 @@ mod tests {
             sessions_dir.join("rollout-1.jsonl"),
             concat!(
                 "{\"timestamp\":\"2026-04-13T12:20:08.985Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions for /tmp/project\"},{\"type\":\"input_text\",\"text\":\"<environment_context>\\n  <cwd>/tmp</cwd>\\n</environment_context>\"},{\"type\":\"input_text\",\"text\":\" hello \"}]}}\n",
+                "{\"timestamp\":\"2026-04-13T12:20:08.985Z\",\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-5.4\"}}\n",
                 "{\"timestamp\":\"2026-04-13T12:20:10.000Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"input_text\",\"text\":\"ignore\"}],\"phase\":\"final\"}}\n",
                 "{\"id\":\"legacy-session\",\"timestamp\":\"2025-09-01T17:41:44.550Z\",\"instructions\":null,\"git\":{\"commit_hash\":\"abc\",\"branch\":\"main\",\"repository_url\":\"git@example.com:repo.git\"}}\n",
                 "{\"type\":\"message\",\"id\":null,\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\" legacy \"}]}\n",
@@ -444,8 +601,10 @@ mod tests {
 
         assert_eq!(messages.len(), 2);
         assert_eq!(format!("{:?}", messages[0].adapter), "Codex");
+        assert_eq!(messages[0].model.as_deref(), Some("gpt-5.4"));
         assert_eq!(messages[0].text, "hello");
         assert_eq!(messages[0].time, 1_776_082_808_985);
+        assert_eq!(messages[1].model.as_deref(), Some("gpt-5.4"));
         assert_eq!(messages[1].text, "legacy");
         assert_eq!(messages[1].time, 1_756_748_504_550);
     }

@@ -1,4 +1,10 @@
-import type { LeaderboardReportPayload, ReportDailyCount, ReportWordCount } from "./types";
+import type {
+  LeaderboardReportPayload,
+  ReportDailyCount,
+  ReportDailyModelSeries,
+  ReportModelSbai,
+  ReportWordCount,
+} from "./types";
 
 type ReportTheme = {
   bg: string;
@@ -96,6 +102,51 @@ function normalizeWordCounts(value: unknown) {
   });
 }
 
+function normalizeDailyModelSeries(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] satisfies ReportDailyModelSeries[];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+
+    const model = "model" in item ? String(item.model ?? "").trim() : "";
+    const points = "points" in item ? normalizeDailyCounts(item.points) : [];
+
+    if (!model) {
+      return [];
+    }
+
+    return [{ model, points }];
+  });
+}
+
+function normalizeModelSbai(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] satisfies ReportModelSbai[];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+
+    const model = "model" in item ? String(item.model ?? "").trim() : "";
+    const profanityCount =
+      "profanityCount" in item ? asNonNegativeInteger(item.profanityCount) : 0;
+    const tokens = "tokens" in item ? asNonNegativeInteger(item.tokens) : 0;
+    const sbai = "sbai" in item ? asNonNegativeFloat(item.sbai) : 0;
+
+    if (!model) {
+      return [];
+    }
+
+    return [{ model, profanityCount, tokens, sbai }];
+  });
+}
+
 export function createFallbackReportPayload(
   input: Partial<Pick<LeaderboardReportPayload, "profanityCount" | "tokens" | "sbai">> = {},
 ) {
@@ -107,6 +158,8 @@ export function createFallbackReportPayload(
     tokens: asNonNegativeInteger(input.tokens),
     sbai: asNonNegativeFloat(input.sbai),
     dailyCounts: [],
+    dailyModelSeries: [],
+    modelSbai: [],
     wordCounts: [],
   } satisfies LeaderboardReportPayload;
 }
@@ -126,6 +179,8 @@ export function normalizeReportPayload(
     tokens: asNonNegativeInteger(source.tokens, defaults.tokens),
     sbai: asNonNegativeFloat(source.sbai, defaults.sbai),
     dailyCounts: normalizeDailyCounts(source.dailyCounts),
+    dailyModelSeries: normalizeDailyModelSeries(source.dailyModelSeries),
+    modelSbai: normalizeModelSbai(source.modelSbai),
     wordCounts: normalizeWordCounts(source.wordCounts),
   };
 }
@@ -142,6 +197,18 @@ export function parseReportPayloadJson(
     return normalizeReportPayload(JSON.parse(value), fallback);
   } catch {
     return createFallbackReportPayload(fallback);
+  }
+}
+
+export function parseModelSbaiJson(value: string | null | undefined) {
+  if (!value?.trim()) {
+    return [] satisfies ReportModelSbai[];
+  }
+
+  try {
+    return normalizeModelSbai(JSON.parse(value));
+  } catch {
+    return [] satisfies ReportModelSbai[];
   }
 }
 

@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use indicatif::ProgressBar;
 use serde::Deserialize;
@@ -6,8 +9,9 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::fs;
 
 use super::{
-    AdapterError, AdapterKind, AgentAdapter, UserMessage, UserMessageStream,
-    normalize::normalize_claude_text, stream_messages,
+    AdapterError, AdapterKind, AgentAdapter, ModelTokenCounts, UserMessage, UserMessageStream,
+    normalize::{normalize_claude_text, normalize_model_id},
+    stream_messages,
 };
 
 #[derive(Debug, Clone)]
@@ -83,14 +87,7 @@ impl ClaudeAdapter {
                         path: log_file.path.clone(),
                         source,
                     })?;
-
-            for (line_index, raw_line) in contents.lines().enumerate() {
-                let line_number = line_index + 1;
-                if let Some(message) = parse_claude_user_message(&log_file, raw_line, line_number)?
-                {
-                    messages.push(message);
-                }
-            }
+            messages.extend(parse_claude_log_file(&log_file, &contents)?);
 
             progress.inc(1);
         }
@@ -156,14 +153,7 @@ impl AgentAdapter for ClaudeAdapter {
                         path: log_file.path.clone(),
                         source,
                     })?;
-
-            for (index, raw_line) in contents.lines().enumerate() {
-                let line_number = index + 1;
-                if let Some(message) = parse_claude_user_message(&log_file, raw_line, line_number)?
-                {
-                    messages.push(message);
-                }
-            }
+            messages.extend(parse_claude_log_file(&log_file, &contents)?);
         }
 
         dedupe_messages(&mut messages);
@@ -195,6 +185,36 @@ impl AgentAdapter for ClaudeAdapter {
 
         Ok(total)
     }
+
+    async fn tokens_by_model(&self) -> Result<ModelTokenCounts, AdapterError> {
+        let stats_cache_path = self.stats_cache_path();
+        let contents = fs::read_to_string(&stats_cache_path)
+            .await
+            .map_err(|source| AdapterError::Io {
+                path: stats_cache_path.clone(),
+                source,
+            })?;
+        let stats: ClaudeStatsCache =
+            serde_json::from_str(&contents).map_err(|source| AdapterError::InvalidJsonLine {
+                path: stats_cache_path,
+                line: 1,
+                source,
+            })?;
+        let mut totals = BTreeMap::new();
+
+        for (model, usage) in stats.model_usage {
+            let Some(model) = normalize_model_id(&model) else {
+                continue;
+            };
+            let tokens = usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_read_input_tokens
+                + usage.cache_creation_input_tokens;
+            *totals.entry(model).or_insert(0) += tokens;
+        }
+
+        Ok(totals)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -214,12 +234,27 @@ struct ClaudeProjectUserEvent {
     #[serde(default, rename = "isSidechain")]
     is_sidechain: bool,
     timestamp: String,
+    uuid: Option<String>,
     message: ClaudeProjectMessage,
 }
 
 #[derive(Debug, Deserialize)]
 struct ClaudeProjectMessage {
     content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeProjectAssistantEvent {
+    #[serde(default, rename = "isSidechain")]
+    is_sidechain: bool,
+    #[serde(rename = "parentUuid")]
+    parent_uuid: Option<String>,
+    message: ClaudeProjectAssistantMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeProjectAssistantMessage {
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -351,6 +386,7 @@ fn parse_claude_user_message(
     log_file: &ClaudeLogFile,
     raw_line: &str,
     line_number: usize,
+    project_models: Option<&BTreeMap<String, String>>,
 ) -> Result<Option<UserMessage>, AdapterError> {
     let kind: ClaudeEventKind =
         serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
@@ -383,10 +419,30 @@ fn parse_claude_user_message(
             if event.is_sidechain {
                 return Ok(None);
             }
-            (event.timestamp, event.message.content)
+            let model = event
+                .uuid
+                .as_ref()
+                .and_then(|uuid| project_models.and_then(|models| models.get(uuid)))
+                .cloned();
+            return build_claude_user_message(
+                log_file,
+                line_number,
+                event.timestamp,
+                event.message.content,
+                model,
+            );
         }
     };
+    build_claude_user_message(log_file, line_number, timestamp, content, None)
+}
 
+fn build_claude_user_message(
+    log_file: &ClaudeLogFile,
+    line_number: usize,
+    timestamp: String,
+    content: String,
+    model: Option<String>,
+) -> Result<Option<UserMessage>, AdapterError> {
     let datetime = OffsetDateTime::parse(&timestamp, &Rfc3339).map_err(|source| {
         AdapterError::InvalidTimestamp {
             path: log_file.path.clone(),
@@ -403,14 +459,98 @@ fn parse_claude_user_message(
 
     Ok(Some(UserMessage {
         adapter: AdapterKind::Claude,
+        model: model.as_deref().and_then(normalize_model_id),
         text,
         time: (datetime.unix_timestamp_nanos() / 1_000_000) as i64,
     }))
 }
 
 fn dedupe_messages(messages: &mut Vec<UserMessage>) {
-    messages.sort_by(|left, right| left.time.cmp(&right.time).then(left.text.cmp(&right.text)));
-    messages.dedup_by(|left, right| left.time == right.time && left.text == right.text);
+    messages.sort_by(|left, right| {
+        left.time
+            .cmp(&right.time)
+            .then(left.text.cmp(&right.text))
+            .then(right.model.is_some().cmp(&left.model.is_some()))
+    });
+    messages.dedup_by(|left, right| {
+        if left.time == right.time && left.text == right.text {
+            if left.model.is_none() {
+                left.model = right.model.clone();
+            }
+            true
+        } else {
+            false
+        }
+    });
+}
+
+fn parse_claude_log_file(
+    log_file: &ClaudeLogFile,
+    contents: &str,
+) -> Result<Vec<UserMessage>, AdapterError> {
+    let project_models = if log_file.kind == ClaudeLogKind::Project {
+        Some(collect_project_models(log_file, contents)?)
+    } else {
+        None
+    };
+    let mut messages = Vec::new();
+
+    for (index, raw_line) in contents.lines().enumerate() {
+        let line_number = index + 1;
+        if let Some(message) =
+            parse_claude_user_message(log_file, raw_line, line_number, project_models.as_ref())?
+        {
+            messages.push(message);
+        }
+    }
+
+    Ok(messages)
+}
+
+fn collect_project_models(
+    log_file: &ClaudeLogFile,
+    contents: &str,
+) -> Result<BTreeMap<String, String>, AdapterError> {
+    let mut models = BTreeMap::new();
+
+    for (index, raw_line) in contents.lines().enumerate() {
+        let line_number = index + 1;
+        let kind: ClaudeEventKind =
+            serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                path: log_file.path.clone(),
+                line: line_number,
+                source,
+            })?;
+
+        if kind.event_type != "assistant" {
+            continue;
+        }
+
+        let event: ClaudeProjectAssistantEvent =
+            serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                path: log_file.path.clone(),
+                line: line_number,
+                source,
+            })?;
+
+        if event.is_sidechain {
+            continue;
+        }
+
+        let Some(parent_uuid) = event.parent_uuid else {
+            continue;
+        };
+        let Some(model) = event.message.model else {
+            continue;
+        };
+        let Some(model) = normalize_model_id(&model) else {
+            continue;
+        };
+
+        models.entry(parent_uuid).or_insert(model);
+    }
+
+    Ok(models)
 }
 
 #[cfg(test)]
@@ -448,6 +588,7 @@ mod tests {
 
         assert_eq!(messages.len(), 2);
         assert_eq!(format!("{:?}", messages[0].adapter), "Claude");
+        assert_eq!(messages[0].model, None);
         assert_eq!(messages[0].text, "actual user text");
         assert_eq!(messages[0].time, 1_772_607_716_809);
         assert_eq!(
@@ -472,9 +613,11 @@ mod tests {
         fs::write(
             projects.join("session.jsonl"),
             concat!(
-                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:55.000Z\",\"isSidechain\":true,\"message\":{\"role\":\"user\",\"content\":\"Warmup\"}}\n",
-                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:56.809Z\",\"message\":{\"role\":\"user\",\"content\":\"shared message\"}}\n",
-                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:02:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"project only\"}}\n",
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:55.000Z\",\"isSidechain\":true,\"uuid\":\"warmup\",\"message\":{\"role\":\"user\",\"content\":\"Warmup\"}}\n",
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:56.809Z\",\"uuid\":\"u1\",\"message\":{\"role\":\"user\",\"content\":\"shared message\"}}\n",
+                "{\"type\":\"assistant\",\"parentUuid\":\"u1\",\"message\":{\"model\":\"claude-3-7-sonnet\"}}\n",
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:02:00.000Z\",\"uuid\":\"u2\",\"message\":{\"role\":\"user\",\"content\":\"project only\"}}\n",
+                "{\"type\":\"assistant\",\"parentUuid\":\"u2\",\"message\":{\"model\":\"claude-3-5-haiku\"}}\n",
             ),
         )
         .unwrap();
@@ -489,7 +632,9 @@ mod tests {
 
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].text, "shared message");
+        assert_eq!(messages[0].model.as_deref(), Some("claude-3-7-sonnet"));
         assert_eq!(messages[1].text, "project only");
+        assert_eq!(messages[1].model.as_deref(), Some("claude-3-5-haiku"));
     }
 
     #[tokio::test]
@@ -520,6 +665,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].model, None);
         assert_eq!(messages[0].text, "real user message");
     }
 

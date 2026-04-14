@@ -27,6 +27,18 @@ export type ReportDailyCount = {
   count: number;
 };
 
+export type ReportDailyModelSeries = {
+  model: string;
+  points: ReportDailyCount[];
+};
+
+export type ReportModelSbai = {
+  model: string;
+  profanityCount: number;
+  tokens: number;
+  sbai: number;
+};
+
 export type ReportWordCount = {
   term: string;
   count: number;
@@ -40,6 +52,8 @@ export type LeaderboardReportPayload = {
   tokens: number;
   sbai: number;
   dailyCounts: ReportDailyCount[];
+  dailyModelSeries: ReportDailyModelSeries[];
+  modelSbai: ReportModelSbai[];
   wordCounts: ReportWordCount[];
 };
 

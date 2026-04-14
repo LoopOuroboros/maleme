@@ -6,6 +6,7 @@ mod normalize;
 mod opencode;
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -29,17 +30,22 @@ pub enum AdapterKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserMessage {
     pub adapter: AdapterKind,
+    pub model: Option<String>,
     pub text: String,
     pub time: i64,
 }
 
 pub type UserMessageStream = Pin<Box<dyn Stream<Item = Result<UserMessage, AdapterError>> + Send>>;
+pub type ModelTokenCounts = BTreeMap<String, i64>;
 
 #[allow(async_fn_in_trait)]
 pub trait AgentAdapter {
     async fn check(&self) -> bool;
     async fn poll(&self) -> Result<UserMessageStream, AdapterError>;
     async fn tokens(&self) -> Result<i64, AdapterError>;
+    async fn tokens_by_model(&self) -> Result<ModelTokenCounts, AdapterError> {
+        Ok(BTreeMap::new())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -132,10 +138,38 @@ impl AgentAdapter for UnifiedAgentAdapter {
 
         Ok(total)
     }
+
+    async fn tokens_by_model(&self) -> Result<ModelTokenCounts, AdapterError> {
+        let mut totals = BTreeMap::new();
+
+        if self.codex.check().await {
+            merge_model_tokens(&mut totals, self.codex.tokens_by_model().await?);
+        }
+
+        if self.claude.check().await {
+            merge_model_tokens(&mut totals, self.claude.tokens_by_model().await?);
+        }
+
+        if self.opencode.check().await {
+            merge_model_tokens(&mut totals, self.opencode.tokens_by_model().await?);
+        }
+
+        if self.cursor.check().await {
+            merge_model_tokens(&mut totals, self.cursor.tokens_by_model().await?);
+        }
+
+        Ok(totals)
+    }
 }
 
 pub(crate) fn stream_messages(messages: Vec<UserMessage>) -> UserMessageStream {
     Box::pin(stream::iter(messages.into_iter().map(Ok)))
+}
+
+pub(crate) fn merge_model_tokens(target: &mut ModelTokenCounts, source: ModelTokenCounts) {
+    for (model, count) in source {
+        *target.entry(model).or_insert(0) += count;
+    }
 }
 
 #[cfg(test)]

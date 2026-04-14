@@ -7,7 +7,11 @@ import {
   readViewerFromToken,
   sessionCookieSameSite,
 } from "../lib/auth";
-import { createFallbackReportPayload, parseReportPayloadJson } from "../lib/report";
+import {
+  createFallbackReportPayload,
+  parseModelSbaiJson,
+  parseReportPayloadJson,
+} from "../lib/report";
 import {
   createPendingSubmission,
   getLeaderboardProfileByGithubId,
@@ -44,7 +48,15 @@ export const POST: APIRoute = async ({ cookies, redirect, request, url }) => {
     tokens: Math.trunc(tokens),
     sbai,
   });
-  const reportPayload = parseReportPayloadJson(formData.get("reportPayload")?.toString(), fallback);
+  const modelSbai = parseModelSbaiJson(formData.get("modelSbaiPayload")?.toString());
+  const parsedReportPayload = parseReportPayloadJson(
+    formData.get("reportPayload")?.toString(),
+    fallback,
+  );
+  const reportPayload =
+    modelSbai.length > 0 && parsedReportPayload.modelSbai.length === 0
+      ? { ...parsedReportPayload, modelSbai }
+      : parsedReportPayload;
 
   const token = cookies.get(getSessionCookieName())?.value;
   const viewer = await readViewerFromToken(token).catch(() => null);

@@ -5,14 +5,19 @@ use rusqlite::{Connection, OpenFlags};
 use tokio::{fs, task};
 
 use super::{
-    AdapterError, AdapterKind, AgentAdapter, UserMessage, UserMessageStream,
-    normalize::trim_to_owned, stream_messages,
+    AdapterError, AdapterKind, AgentAdapter, ModelTokenCounts, UserMessage, UserMessageStream,
+    normalize::{normalize_model_id, trim_to_owned},
+    stream_messages,
 };
 
 const QUERY: &str = r#"
 SELECT
   json_extract(p.data, '$.text') AS text,
-  m.time_created AS time
+  m.time_created AS time,
+  COALESCE(
+    json_extract(m.data, '$.model.modelID'),
+    json_extract(m.data, '$.modelID')
+  ) AS model
 FROM message m
 JOIN part p ON p.message_id = m.id
 WHERE json_extract(m.data, '$.role') = 'user'
@@ -30,6 +35,28 @@ SELECT COALESCE(SUM(
 ), 0)
 FROM part
 WHERE json_extract(data, '$.type') = 'step-finish'
+"#;
+
+const MODEL_TOKENS_QUERY: &str = r#"
+SELECT
+  COALESCE(
+    json_extract(m.data, '$.model.modelID'),
+    json_extract(m.data, '$.modelID')
+  ) AS model,
+  COALESCE(SUM(
+    CAST(json_extract(m.data, '$.tokens.input') AS INTEGER) +
+    CAST(json_extract(m.data, '$.tokens.output') AS INTEGER) +
+    CAST(json_extract(m.data, '$.tokens.reasoning') AS INTEGER) +
+    CAST(json_extract(m.data, '$.tokens.cache.read') AS INTEGER) +
+    CAST(json_extract(m.data, '$.tokens.cache.write') AS INTEGER)
+  ), 0) AS total_tokens
+FROM message m
+WHERE json_extract(m.data, '$.role') = 'assistant'
+  AND COALESCE(
+    json_extract(m.data, '$.model.modelID'),
+    json_extract(m.data, '$.modelID')
+  ) IS NOT NULL
+GROUP BY 1
 "#;
 
 #[derive(Debug, Clone)]
@@ -75,8 +102,10 @@ impl OpenCodeAdapter {
                 .query_map([], |row| {
                     let text: String = row.get(0)?;
                     let time: i64 = row.get(1)?;
+                    let model: Option<String> = row.get(2)?;
                     Ok(UserMessage {
                         adapter: AdapterKind::OpenCode,
+                        model,
                         text,
                         time,
                     })
@@ -97,6 +126,7 @@ impl OpenCodeAdapter {
                 if !text.is_empty() {
                     messages.push(UserMessage {
                         adapter: AdapterKind::OpenCode,
+                        model: message.model.as_deref().and_then(normalize_model_id),
                         text,
                         time: message.time,
                     });
@@ -139,8 +169,10 @@ impl AgentAdapter for OpenCodeAdapter {
                 .query_map([], |row| {
                     let text: String = row.get(0)?;
                     let time: i64 = row.get(1)?;
+                    let model: Option<String> = row.get(2)?;
                     Ok(UserMessage {
                         adapter: AdapterKind::OpenCode,
+                        model,
                         text,
                         time,
                     })
@@ -161,6 +193,7 @@ impl AgentAdapter for OpenCodeAdapter {
                 if !text.is_empty() {
                     messages.push(UserMessage {
                         adapter: AdapterKind::OpenCode,
+                        model: message.model.as_deref().and_then(normalize_model_id),
                         text,
                         time: message.time,
                     });
@@ -198,6 +231,49 @@ impl AgentAdapter for OpenCodeAdapter {
         .map_err(AdapterError::Join)??;
 
         Ok(total)
+    }
+
+    async fn tokens_by_model(&self) -> Result<ModelTokenCounts, AdapterError> {
+        let db_path = self.db_path.clone();
+        task::spawn_blocking(move || {
+            let connection =
+                Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(
+                    |source| AdapterError::SqliteOpen {
+                        path: db_path.clone(),
+                        source,
+                    },
+                )?;
+            let mut statement = connection.prepare(MODEL_TOKENS_QUERY).map_err(|source| {
+                AdapterError::SqliteQuery {
+                    path: db_path.clone(),
+                    source,
+                }
+            })?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(|source| AdapterError::SqliteQuery {
+                    path: db_path.clone(),
+                    source,
+                })?;
+            let mut totals = ModelTokenCounts::new();
+
+            for row in rows {
+                let (model, tokens) = row.map_err(|source| AdapterError::SqliteQuery {
+                    path: db_path.clone(),
+                    source,
+                })?;
+                let Some(model) = normalize_model_id(&model) else {
+                    continue;
+                };
+                *totals.entry(model).or_insert(0) += tokens;
+            }
+
+            Ok(totals)
+        })
+        .await
+        .map_err(AdapterError::Join)?
     }
 }
 
@@ -248,7 +324,7 @@ mod tests {
                     "ses_1",
                     1000_i64,
                     1000_i64,
-                    r#"{"role":"user"}"#,
+                    r#"{"role":"user","model":{"providerID":"openai","modelID":"gpt-5.4"}}"#,
                 ),
             )
             .unwrap();
@@ -301,6 +377,7 @@ mod tests {
 
         assert_eq!(messages.len(), 1);
         assert_eq!(format!("{:?}", messages[0].adapter), "OpenCode");
+        assert_eq!(messages[0].model.as_deref(), Some("gpt-5.4"));
         assert_eq!(messages[0].text, "hello");
         assert_eq!(messages[0].time, 1000);
     }

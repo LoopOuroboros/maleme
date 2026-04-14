@@ -4,6 +4,15 @@ use maleme::{
     write_report_and_open,
 };
 
+fn merge_model_tokens(
+    target: &mut std::collections::BTreeMap<String, i64>,
+    source: std::collections::BTreeMap<String, i64>,
+) {
+    for (model, count) in source {
+        *target.entry(model).or_insert(0) += count;
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
@@ -81,21 +90,30 @@ async fn main() {
     }
 
     if claude_enabled {
-        match claude.collect_messages_with_progress(progress.clone()).await {
+        match claude
+            .collect_messages_with_progress(progress.clone())
+            .await
+        {
             Ok(found) => messages.extend(found),
             Err(error) => eprintln!("failed to collect Claude messages: {error}"),
         }
     }
 
     if opencode_enabled {
-        match opencode.collect_messages_with_progress(progress.clone()).await {
+        match opencode
+            .collect_messages_with_progress(progress.clone())
+            .await
+        {
             Ok(found) => messages.extend(found),
             Err(error) => eprintln!("failed to collect OpenCode messages: {error}"),
         }
     }
 
     if cursor_enabled {
-        match cursor.collect_messages_with_progress(progress.clone()).await {
+        match cursor
+            .collect_messages_with_progress(progress.clone())
+            .await
+        {
             Ok(found) => messages.extend(found),
             Err(error) => eprintln!("failed to collect Cursor messages: {error}"),
         }
@@ -104,12 +122,17 @@ async fn main() {
     messages.sort_by_key(|message| message.time);
 
     let mut tokens = 0_i64;
+    let mut model_tokens = std::collections::BTreeMap::new();
 
     if codex_enabled {
         progress.set_message("Codex tokens".to_owned());
         match codex.tokens().await {
             Ok(count) => tokens += count,
             Err(error) => eprintln!("failed to collect Codex tokens: {error}"),
+        }
+        match codex.tokens_by_model().await {
+            Ok(counts) => merge_model_tokens(&mut model_tokens, counts),
+            Err(error) => eprintln!("failed to collect Codex model tokens: {error}"),
         }
         progress.inc(1);
     }
@@ -120,6 +143,10 @@ async fn main() {
             Ok(count) => tokens += count,
             Err(error) => eprintln!("failed to collect Claude tokens: {error}"),
         }
+        match claude.tokens_by_model().await {
+            Ok(counts) => merge_model_tokens(&mut model_tokens, counts),
+            Err(error) => eprintln!("failed to collect Claude model tokens: {error}"),
+        }
         progress.inc(1);
     }
 
@@ -129,6 +156,10 @@ async fn main() {
             Ok(count) => tokens += count,
             Err(error) => eprintln!("failed to collect OpenCode tokens: {error}"),
         }
+        match opencode.tokens_by_model().await {
+            Ok(counts) => merge_model_tokens(&mut model_tokens, counts),
+            Err(error) => eprintln!("failed to collect OpenCode model tokens: {error}"),
+        }
         progress.inc(1);
     }
 
@@ -137,6 +168,10 @@ async fn main() {
         match cursor.tokens().await {
             Ok(count) => tokens += count,
             Err(error) => eprintln!("failed to collect Cursor tokens: {error}"),
+        }
+        match cursor.tokens_by_model().await {
+            Ok(counts) => merge_model_tokens(&mut model_tokens, counts),
+            Err(error) => eprintln!("failed to collect Cursor model tokens: {error}"),
         }
         progress.inc(1);
     }
@@ -149,7 +184,7 @@ async fn main() {
         }
     };
     progress.set_message("生成 HTML 报告".to_owned());
-    let report_path = match write_report_and_open(&messages, tokens, &detector) {
+    let report_path = match write_report_and_open(&messages, tokens, &model_tokens, &detector) {
         Ok(path) => path,
         Err(error) => {
             eprintln!("failed to write report: {error}");
