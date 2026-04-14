@@ -1,0 +1,458 @@
+---
+export const prerender = false;
+
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import ReportScreen from "../../components/ReportScreen.astro";
+import { getAppUrl } from "../../lib/auth";
+import { getLeaderboardProfile, hasDatabaseBinding } from "../../lib/db";
+import { getReportHeadlineHtml, getReportTheme, getSbaiStatus } from "../../lib/report";
+import { buildTwitterIntentUrl, getSharePath } from "../../lib/share";
+
+const login = Astro.params.login || "";
+const databaseReady = hasDatabaseBinding();
+const profile = databaseReady && login ? await getLeaderboardProfile(login) : null;
+
+if (!profile) {
+  Astro.response.status = 404;
+}
+
+const report = profile?.report;
+const theme = getReportTheme(report?.sbai ?? 0);
+const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
+const title = profile ? `${profile.displayName} - maleme leaderboard` : "maleme leaderboard";
+const description = profile ? `${profile.displayName} 的 maleme 词频报告` : "maleme leaderboard";
+const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
+const shareUrl = profile ? new URL(getSharePath(profile.githubId), getAppUrl(Astro.url)).toString() : "";
+const showSubmittedShareModal = Astro.url.searchParams.get("state") === "submitted";
+const twitterShareUrl = profile
+  ? buildTwitterIntentUrl(
+    `${profile.displayName} 在 maleme leaderboard 排名 #${profile.rank}，SBAI ${report?.sbai.toFixed(2) ?? "0.00"}`,
+    shareUrl,
+  )
+  : "";
+const themeStyle = [
+  `--bg:${theme.bg}`,
+  `--bg-accent:${theme.bgAccent}`,
+  `--panel:${theme.panel}`,
+  `--panel-strong:${theme.panelStrong}`,
+  `--panel-tint:${theme.panelTint}`,
+  `--muted:${theme.muted}`,
+  `--text:${theme.text}`,
+  `--line:${theme.line}`,
+  `--line-soft:${theme.lineSoft}`,
+  `--area-top:${theme.areaTop}`,
+  `--area-bottom:${theme.areaBottom}`,
+  `--accent:${theme.accent}`,
+  `--accent-soft:${theme.accentSoft}`,
+  `--accent-warm:${theme.accentWarm}`,
+  `--accent-pink:${theme.accentPink}`,
+  `--border:${theme.border}`,
+  `--grid:${theme.grid}`,
+  `--shadow:${theme.shadow}`,
+  `--tooltip-bg:${theme.tooltipBg}`,
+  `--hero-from:${theme.heroFrom}`,
+  `--hero-to:${theme.heroTo}`,
+  `--hero-glow-a:${theme.heroGlowA}`,
+  `--hero-glow-b:${theme.heroGlowB}`,
+  `--cloud-glow:${theme.cloudGlow}`,
+  `--cloud-to:${theme.cloudTo}`,
+  `--sbai-glow:${theme.sbaiGlow}`,
+  `--sbai-surface-top:${theme.sbaiSurfaceTop}`,
+  `--sbai-surface-bottom:${theme.sbaiSurfaceBottom}`,
+  `--sbai-border:${theme.sbaiBorder}`,
+  `--sbai-text:${theme.sbaiText}`,
+  `--sbai-muted:${theme.sbaiMuted}`,
+].join(";");
+const wordPaletteJson = JSON.stringify(theme.wordPalette).replaceAll("</", "<\\/");
+const fireworksPaletteJson = JSON.stringify(theme.fireworksPalette).replaceAll("</", "<\\/");
+const dailyPointsJson = JSON.stringify(report?.dailyCounts ?? []).replaceAll("</", "<\\/");
+const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map((item) => [item.term, item.count])).replaceAll("</", "<\\/");
+---
+
+<BaseLayout title={title} description={description} lang="zh-CN">
+  <Fragment slot="head">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Rajdhani:wght@500;600;700&family=Noto+Sans+SC:wght@500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js"></script>
+  </Fragment>
+
+  {
+    profile && report ? (
+      <ReportScreen
+        headlineHtml={headlineHtml}
+        report={report}
+        sbaiState={sbaiStatus.state}
+        sbaiCopy={sbaiStatus.copy}
+        themeStyle={themeStyle}
+        wordPaletteJson={wordPaletteJson}
+        fireworksPaletteJson={fireworksPaletteJson}
+        dailyPointsJson={dailyPointsJson}
+        wordCloudJson={wordCloudJson}
+      >
+        <div slot="actions" class="share-actions">
+          <a href="/" class="submit-button ghost-button">返回排行榜</a>
+          <a href={profile.profileUrl} target="_blank" rel="noreferrer" class="submit-button github-button">
+            <svg viewBox="0 0 16 16" aria-hidden="true" class="button-logo">
+              <path
+                fill="currentColor"
+                d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38
+                0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52
+                -.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
+                -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21
+                2.2.82a7.57 7.57 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82
+                1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01
+                2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
+              />
+            </svg>
+            <span>GitHub 主页</span>
+          </a>
+          <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">分享到 Twitter</a>
+          <button
+            type="button"
+            class="submit-button"
+            id="share-button"
+            data-share-url={shareUrl}
+          >
+            复制分享链接
+          </button>
+        </div>
+      </ReportScreen>
+      <dialog
+        class="share-modal"
+        id="share-modal"
+        data-open-on-load={showSubmittedShareModal ? "true" : "false"}
+      >
+        <form method="dialog" class="share-modal-card">
+          <button type="submit" class="share-modal-close" aria-label="关闭分享弹窗">关闭</button>
+          <p class="share-modal-kicker">提交成功</p>
+          <h2 class="share-modal-title">分享到 X</h2>
+          <p class="share-modal-copy">
+            排行榜已经更新，分享 SBAI 指数。
+          </p>
+          <div class="share-modal-actions">
+            <a
+              href={twitterShareUrl}
+              target="_blank"
+              rel="noreferrer"
+              class="submit-button twitter-button"
+              id="share-modal-twitter"
+            >
+              分享到 Twitter
+            </a>
+            <button
+              type="button"
+              class="submit-button ghost-button share-modal-copy-button"
+              id="share-modal-copy-button"
+              data-share-url={shareUrl}
+            >
+              复制分享链接
+            </button>
+          </div>
+        </form>
+      </dialog>
+    ) : (
+      <main class="missing-shell">
+        <section class="surface missing-card">
+          <h1 class="missing-title">没有找到这个用户的报告</h1>
+          <p class="missing-copy">可能还没提交到 leaderboard，或者登录名已经发生变化。</p>
+          <a href="/" class="missing-link">回到排行榜</a>
+        </section>
+      </main>
+    )
+  }
+</BaseLayout>
+
+<script>
+  const shareButton = document.getElementById("share-button");
+  const shareModal = document.getElementById("share-modal");
+  const shareModalCopyButton = document.getElementById("share-modal-copy-button");
+  const shareModalTwitterButton = document.getElementById("share-modal-twitter");
+
+  async function copyShareUrl(button) {
+    const shareUrl = button?.dataset.shareUrl;
+    if (!shareUrl) {
+      return false;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = shareUrl;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "absolute";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+
+      const originalText = button.textContent;
+      button.textContent = "已复制";
+      window.setTimeout(() => {
+        button.textContent = originalText;
+      }, 1800);
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return false;
+      }
+      return false;
+    }
+  }
+
+  shareModalCopyButton?.addEventListener("click", async () => {
+    await copyShareUrl(shareModalCopyButton);
+  });
+
+  shareButton?.addEventListener("click", async () => {
+    await copyShareUrl(shareButton);
+  });
+
+  const supportsDialog =
+    typeof HTMLDialogElement !== "undefined" &&
+    shareModal instanceof HTMLDialogElement;
+
+  if (supportsDialog && shareModal.dataset.openOnLoad === "true") {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete("state");
+    window.history.replaceState({}, "", nextUrl);
+
+    if (typeof shareModal.showModal === "function") {
+      shareModal.showModal();
+    } else {
+      shareModal.setAttribute("open", "");
+    }
+
+    shareModal.addEventListener("click", (event) => {
+      const rect = shareModal.getBoundingClientRect();
+      const isBackdropClick =
+        event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom;
+
+      if (isBackdropClick) {
+        shareModal.close();
+      }
+    });
+
+    shareModalTwitterButton?.focus();
+  }
+</script>
+
+<style>
+  .share-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .submit-button {
+    height: 48px;
+    border: 0;
+    border-radius: 8px;
+    padding: 0 18px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 900;
+    color: #ffffff;
+    background: linear-gradient(135deg, #ff5a5f, #ff7f50);
+    box-shadow:
+      0 16px 28px rgba(255, 90, 95, 0.24),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease,
+      background 160ms ease;
+  }
+
+  .submit-button:hover,
+  .submit-button:focus-visible {
+    transform: translateY(-1px);
+    box-shadow:
+      0 18px 32px rgba(255, 90, 95, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+
+  .ghost-button {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+      rgba(18, 12, 16, 0.72);
+    box-shadow:
+      inset 0 0 0 1px var(--border),
+      0 10px 22px rgba(6, 7, 10, 0.18);
+  }
+
+  .ghost-button:hover,
+  .ghost-button:focus-visible {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
+      rgba(22, 14, 19, 0.82);
+  }
+
+  .github-button {
+    gap: 10px;
+    color: #f6f8fa;
+    background: linear-gradient(135deg, #24292f, #3d444d);
+    box-shadow:
+      0 16px 28px rgba(15, 23, 42, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+
+  .github-button:hover,
+  .github-button:focus-visible {
+    box-shadow:
+      0 20px 36px rgba(15, 23, 42, 0.38),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  }
+
+  .button-logo {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+  }
+
+  .twitter-button {
+    background: linear-gradient(135deg, #1d9bf0, #37c8ff);
+    box-shadow:
+      0 16px 28px rgba(29, 155, 240, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+
+  .twitter-button:hover,
+  .twitter-button:focus-visible {
+    box-shadow:
+      0 20px 36px rgba(29, 155, 240, 0.38),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  }
+
+  .share-modal {
+    width: min(460px, calc(100vw - 24px));
+    margin: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+  }
+
+  .share-modal::backdrop {
+    background: rgba(8, 10, 18, 0.64);
+    backdrop-filter: blur(8px);
+  }
+
+  .share-modal-card {
+    position: relative;
+    display: grid;
+    gap: 14px;
+    padding: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+      rgba(18, 12, 16, 0.92);
+    box-shadow:
+      0 28px 80px rgba(5, 7, 12, 0.42),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .share-modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    min-width: 44px;
+    min-height: 44px;
+    border: 0;
+    border-radius: 8px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+  }
+
+  .share-modal-kicker {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #ffb86c;
+  }
+
+  .share-modal-title {
+    margin: 0;
+    font-size: 30px;
+    line-height: 1.05;
+    color: #ffffff;
+  }
+
+  .share-modal-copy {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .share-modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .share-modal-copy-button {
+    color: #ffffff;
+  }
+
+  .missing-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+  }
+
+  .missing-card {
+    width: min(520px, 100%);
+    padding: 24px;
+  }
+
+  .missing-title {
+    margin-top: 0;
+  }
+
+  .missing-copy {
+    margin-bottom: 18px;
+    color: var(--muted);
+  }
+
+  .missing-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+    text-decoration: none;
+  }
+</style>

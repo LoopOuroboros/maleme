@@ -1,4 +1,6 @@
 ---
+import { Image } from "astro:assets";
+import { buildShareButtonText, getSharePath } from "../lib/share";
 import type {
   LeaderboardEntry,
   LeaderboardSortDirection,
@@ -73,31 +75,102 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
           <th>Tokens</th>
           <th>SBAI</th>
           <th>Updated</th>
+          <th>Share</th>
         </tr>
       </thead>
       <tbody>
         {
-          entries.map((entry) => (
-            <tr>
-              <td class="rank">#{entry.rank}</td>
-              <td class="term-cell">
-                <img src={entry.avatarUrl} alt={entry.displayName} class="term-image" />
-                <span>
-                  <span class="term-text">{entry.displayName}</span>
-                  <span class="term-subtext">@{entry.login}</span>
-                </span>
-              </td>
-              <td>{entry.profanityCount.toLocaleString("en-US")}</td>
-              <td>{entry.tokens.toLocaleString("en-US")}</td>
-              <td class="change">{entry.sbai.toFixed(3)}</td>
-              <td>{new Date(entry.updatedAt).toLocaleDateString("en-US")}</td>
-            </tr>
-          ))
+          entries.map((entry) => {
+            const profileHref = `/u/${encodeURIComponent(entry.login)}`;
+            const shareHref = getSharePath(entry.githubId);
+            const shareText = buildShareButtonText(entry);
+
+            return (
+              <tr>
+                <td class="rank">#{entry.rank}</td>
+                <td>
+                  <a href={profileHref} class="term-cell">
+                    <Image
+                      src={entry.avatarUrl}
+                      alt={entry.displayName}
+                      class="term-image"
+                      width={36}
+                      height={36}
+                    />
+                    <span>
+                      <span class="term-text">{entry.displayName}</span>
+                      <span class="term-subtext">@{entry.login}</span>
+                    </span>
+                  </a>
+                </td>
+                <td>{entry.profanityCount.toLocaleString("en-US")}</td>
+                <td>{entry.tokens.toLocaleString("en-US")}</td>
+                <td class="change">{entry.sbai.toFixed(3)}</td>
+                <td>{new Date(entry.updatedAt).toLocaleDateString("en-US")}</td>
+                <td class="share-cell">
+                  <button
+                    type="button"
+                    class="share-button"
+                    data-share-url={shareHref}
+                    data-share-title={`${entry.displayName} 的 maleme 分享卡`}
+                    data-share-text={shareText}
+                    aria-label={`分享 ${entry.displayName} 的 leaderboard 数据`}
+                  >
+                    分享
+                  </button>
+                </td>
+              </tr>
+            );
+          })
         }
       </tbody>
     </table>
   </div>
 </section>
+
+<script>
+  for (const button of document.querySelectorAll(".share-button")) {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+
+      const shareUrl = button.getAttribute("data-share-url");
+      const shareTitle = button.getAttribute("data-share-title") || "maleme leaderboard";
+      const shareText = button.getAttribute("data-share-text") || shareTitle;
+
+      if (!shareUrl) {
+        return;
+      }
+
+      const absoluteUrl = new URL(shareUrl, window.location.origin).toString();
+
+      try {
+        if (navigator.share) {
+          await navigator.share({
+            title: shareTitle,
+            text: shareText,
+            url: absoluteUrl,
+          });
+          return;
+        }
+
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(absoluteUrl);
+          button.textContent = "已复制";
+          window.setTimeout(() => {
+            button.textContent = "分享";
+          }, 1800);
+          return;
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+      }
+
+      window.open(absoluteUrl, "_blank", "noopener,noreferrer");
+    });
+  }
+</script>
 
 <style>
   .leaderboard {
@@ -190,6 +263,8 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
     display: flex;
     align-items: center;
     gap: 10px;
+    color: inherit;
+    text-decoration: none;
   }
 
   .term-image {
@@ -215,6 +290,33 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
   .change {
     color: #0d7a84;
     font-weight: 800;
+  }
+
+  .share-cell {
+    width: 88px;
+  }
+
+  .share-button {
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--text);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      color 160ms ease;
+  }
+
+  .share-button:hover,
+  .share-button:focus-visible {
+    border-color: rgba(15, 163, 177, 0.45);
+    background: rgba(15, 163, 177, 0.12);
+    color: #0d7a84;
   }
 
   @media (max-width: 980px) {

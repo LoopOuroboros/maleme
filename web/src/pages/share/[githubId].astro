@@ -1,0 +1,254 @@
+---
+export const prerender = false;
+
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import ReportScreen from "../../components/ReportScreen.astro";
+import { getAppUrl } from "../../lib/auth";
+import { getLeaderboardProfileByGithubId, hasDatabaseBinding } from "../../lib/db";
+import { getReportHeadlineHtml, getReportTheme, getSbaiStatus } from "../../lib/report";
+import { buildShareDescription, buildShareTitle, buildTwitterIntentUrl, getShareImagePath, getSharePath } from "../../lib/share";
+
+const githubId = Number(Astro.params.githubId || "");
+const databaseReady = hasDatabaseBinding();
+const profile = databaseReady && Number.isInteger(githubId) && githubId > 0
+  ? await getLeaderboardProfileByGithubId(githubId)
+  : null;
+
+if (!profile) {
+  Astro.response.status = 404;
+}
+
+const report = profile?.report;
+const theme = getReportTheme(report?.sbai ?? 0);
+const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
+const appUrl = getAppUrl(Astro.url);
+const sharePath = profile ? getSharePath(profile.githubId) : "/";
+const shareUrl = new URL(sharePath, appUrl).toString();
+const shareImageUrl = profile ? new URL(getShareImagePath(profile.githubId), appUrl).toString() : "";
+const title = profile ? `${buildShareTitle(profile)} | maleme leaderboard` : "maleme leaderboard";
+const description = profile ? buildShareDescription(profile) : "maleme leaderboard";
+const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
+const twitterShareUrl = profile ? buildTwitterIntentUrl(description, shareUrl) : "";
+const themeStyle = [
+  `--bg:${theme.bg}`,
+  `--bg-accent:${theme.bgAccent}`,
+  `--panel:${theme.panel}`,
+  `--panel-strong:${theme.panelStrong}`,
+  `--panel-tint:${theme.panelTint}`,
+  `--muted:${theme.muted}`,
+  `--text:${theme.text}`,
+  `--line:${theme.line}`,
+  `--line-soft:${theme.lineSoft}`,
+  `--area-top:${theme.areaTop}`,
+  `--area-bottom:${theme.areaBottom}`,
+  `--accent:${theme.accent}`,
+  `--accent-soft:${theme.accentSoft}`,
+  `--accent-warm:${theme.accentWarm}`,
+  `--accent-pink:${theme.accentPink}`,
+  `--border:${theme.border}`,
+  `--grid:${theme.grid}`,
+  `--shadow:${theme.shadow}`,
+  `--tooltip-bg:${theme.tooltipBg}`,
+  `--hero-from:${theme.heroFrom}`,
+  `--hero-to:${theme.heroTo}`,
+  `--hero-glow-a:${theme.heroGlowA}`,
+  `--hero-glow-b:${theme.heroGlowB}`,
+  `--cloud-glow:${theme.cloudGlow}`,
+  `--cloud-to:${theme.cloudTo}`,
+  `--sbai-glow:${theme.sbaiGlow}`,
+  `--sbai-surface-top:${theme.sbaiSurfaceTop}`,
+  `--sbai-surface-bottom:${theme.sbaiSurfaceBottom}`,
+  `--sbai-border:${theme.sbaiBorder}`,
+  `--sbai-text:${theme.sbaiText}`,
+  `--sbai-muted:${theme.sbaiMuted}`,
+].join(";");
+const wordPaletteJson = JSON.stringify(theme.wordPalette).replaceAll("</", "<\\/");
+const fireworksPaletteJson = JSON.stringify(theme.fireworksPalette).replaceAll("</", "<\\/");
+const dailyPointsJson = JSON.stringify(report?.dailyCounts ?? []).replaceAll("</", "<\\/");
+const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map((item) => [item.term, item.count])).replaceAll("</", "<\\/");
+---
+
+<BaseLayout title={title} description={description} lang="zh-CN">
+  <Fragment slot="head">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Rajdhani:wght@500;600;700&family=Noto+Sans+SC:wght@500;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="maleme leaderboard" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={shareUrl} />
+    {
+      shareImageUrl && (
+        <>
+          <meta property="og:image" content={shareImageUrl} />
+          <meta property="og:image:type" content="image/svg+xml" />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta property="og:image:alt" content={description} />
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content={title} />
+          <meta name="twitter:description" content={description} />
+          <meta name="twitter:image" content={shareImageUrl} />
+        </>
+      )
+    }
+    <link rel="canonical" href={shareUrl} />
+  </Fragment>
+
+  {
+    profile && report ? (
+      <ReportScreen
+        headlineHtml={headlineHtml}
+        report={report}
+        sbaiState={sbaiStatus.state}
+        sbaiCopy={sbaiStatus.copy}
+        themeStyle={themeStyle}
+        wordPaletteJson={wordPaletteJson}
+        fireworksPaletteJson={fireworksPaletteJson}
+        dailyPointsJson={dailyPointsJson}
+        wordCloudJson={wordCloudJson}
+      >
+        <div slot="actions" class="share-actions">
+          <a href="/" class="submit-button ghost-button">返回排行榜</a>
+          <a href={`/u/${encodeURIComponent(profile.login)}`} class="submit-button ghost-button">完整详情</a>
+          <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">分享到 Twitter</a>
+          <button
+            type="button"
+            class="submit-button"
+            id="share-button"
+            data-share-url={shareUrl}
+          >
+            复制分享链接
+          </button>
+        </div>
+      </ReportScreen>
+    ) : (
+      <main class="missing-shell">
+        <section class="surface missing-card">
+          <h1 class="missing-title">没有找到这个用户的分享面板</h1>
+          <p class="missing-copy">这个用户还没有提交记录，或者分享链接对应的用户 ID 已失效。</p>
+          <a href="/" class="missing-link">回到排行榜</a>
+        </section>
+      </main>
+    )
+  }
+</BaseLayout>
+
+<script>
+  const shareButton = document.getElementById("share-button");
+  shareButton?.addEventListener("click", async () => {
+    const shareUrl = shareButton.dataset.shareUrl;
+    if (!shareUrl) {
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        shareButton.textContent = "已复制";
+        window.setTimeout(() => {
+          shareButton.textContent = "复制分享链接";
+        }, 1800);
+        return;
+      }
+      const textarea = document.createElement("textarea");
+      textarea.value = shareUrl;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "absolute";
+      textarea.style.left = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      shareButton.textContent = "已复制";
+      window.setTimeout(() => {
+        shareButton.textContent = "复制分享链接";
+      }, 1800);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+    }
+  });
+</script>
+
+<style>
+  .share-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .ghost-button {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+      rgba(18, 12, 16, 0.72);
+    box-shadow:
+      inset 0 0 0 1px var(--border),
+      0 10px 22px rgba(6, 7, 10, 0.18);
+  }
+
+  .ghost-button:hover,
+  .ghost-button:focus-visible {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
+      rgba(22, 14, 19, 0.82);
+  }
+
+  .twitter-button {
+    background: linear-gradient(135deg, #1d9bf0, #37c8ff);
+    box-shadow:
+      0 16px 28px rgba(29, 155, 240, 0.3),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+
+  .twitter-button:hover,
+  .twitter-button:focus-visible {
+    box-shadow:
+      0 20px 36px rgba(29, 155, 240, 0.38),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  }
+
+  .missing-shell {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+  }
+
+  .missing-card {
+    width: min(520px, 100%);
+    padding: 24px;
+  }
+
+  .missing-title {
+    margin-top: 0;
+  }
+
+  .missing-copy {
+    margin-bottom: 18px;
+    color: var(--muted);
+  }
+
+  .missing-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+    text-decoration: none;
+  }
+</style>
