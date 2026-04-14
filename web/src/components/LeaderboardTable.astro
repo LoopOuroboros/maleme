@@ -112,11 +112,16 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
                     type="button"
                     class="share-button"
                     data-share-url={shareHref}
-                    data-share-title={`${entry.displayName} 的 maleme 分享卡`}
                     data-share-text={shareText}
-                    aria-label={`分享 ${entry.displayName} 的 leaderboard 数据`}
+                    aria-label={`Share ${entry.displayName}'s leaderboard card on X`}
                   >
-                    分享
+                    <svg viewBox="0 0 24 24" aria-hidden="true" class="share-button-icon">
+                      <path
+                        fill="currentColor"
+                        d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
+                      />
+                    </svg>
+                    <span>Share on X</span>
                   </button>
                 </td>
               </tr>
@@ -134,40 +139,21 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
       event.preventDefault();
 
       const shareUrl = button.getAttribute("data-share-url");
-      const shareTitle = button.getAttribute("data-share-title") || "maleme leaderboard";
-      const shareText = button.getAttribute("data-share-text") || shareTitle;
+      const shareText = button.getAttribute("data-share-text") || "maleme leaderboard";
 
       if (!shareUrl) {
         return;
       }
 
       const absoluteUrl = new URL(shareUrl, window.location.origin).toString();
+      const twitterIntentUrl = new URL("https://twitter.com/intent/tweet");
+      twitterIntentUrl.searchParams.set("text", shareText);
+      twitterIntentUrl.searchParams.set("url", absoluteUrl);
 
-      try {
-        if (navigator.share) {
-          await navigator.share({
-            title: shareTitle,
-            text: shareText,
-            url: absoluteUrl,
-          });
-          return;
-        }
-
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(absoluteUrl);
-          button.textContent = "已复制";
-          window.setTimeout(() => {
-            button.textContent = "分享";
-          }, 1800);
-          return;
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
+      const popup = window.open(twitterIntentUrl.toString(), "_blank", "noopener,noreferrer");
+      if (!popup) {
+        window.location.href = twitterIntentUrl.toString();
       }
-
-      window.open(absoluteUrl, "_blank", "noopener,noreferrer");
     });
   }
 </script>
@@ -293,23 +279,35 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
   }
 
   .share-cell {
-    width: 88px;
+    width: 132px;
   }
 
   .share-button {
     min-height: 34px;
-    padding: 0 12px;
+    min-width: 112px;
+    padding: 0 14px;
     border: 1px solid var(--border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.9);
     color: var(--text);
     font: inherit;
     font-weight: 700;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     cursor: pointer;
     transition:
       border-color 160ms ease,
       background-color 160ms ease,
       color 160ms ease;
+  }
+
+  .share-button-icon {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
   }
 
   .share-button:hover,

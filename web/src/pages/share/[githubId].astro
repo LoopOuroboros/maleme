@@ -6,7 +6,7 @@ import ReportScreen from "../../components/ReportScreen.astro";
 import { getAppUrl } from "../../lib/auth";
 import { getLeaderboardProfileByGithubId, hasDatabaseBinding } from "../../lib/db";
 import { getReportHeadlineHtml, getReportTheme, getSbaiStatus } from "../../lib/report";
-import { buildShareDescription, buildShareTitle, buildTwitterIntentUrl, getShareImagePath, getSharePath } from "../../lib/share";
+import { buildShareDescription, buildShareTitle, buildTwitterIntentUrl, getSharePath } from "../../lib/share";
 
 const githubId = Number(Astro.params.githubId || "");
 const databaseReady = hasDatabaseBinding();
@@ -24,7 +24,7 @@ const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
 const appUrl = getAppUrl(Astro.url);
 const sharePath = profile ? getSharePath(profile.githubId) : "/";
 const shareUrl = new URL(sharePath, appUrl).toString();
-const shareImageUrl = profile ? new URL(getShareImagePath(profile.githubId), appUrl).toString() : "";
+const shareImageUrl = profile?.avatarUrl ?? "";
 const title = profile ? `${buildShareTitle(profile)} | maleme leaderboard` : "maleme leaderboard";
 const description = profile ? buildShareDescription(profile) : "maleme leaderboard";
 const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
@@ -86,14 +86,12 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
       shareImageUrl && (
         <>
           <meta property="og:image" content={shareImageUrl} />
-          <meta property="og:image:type" content="image/svg+xml" />
-          <meta property="og:image:width" content="1200" />
-          <meta property="og:image:height" content="630" />
           <meta property="og:image:alt" content={description} />
           <meta name="twitter:card" content="summary_large_image" />
           <meta name="twitter:title" content={title} />
           <meta name="twitter:description" content={description} />
           <meta name="twitter:image" content={shareImageUrl} />
+          <meta name="twitter:image:alt" content={description} />
         </>
       )
     }
@@ -114,16 +112,24 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
         wordCloudJson={wordCloudJson}
       >
         <div slot="actions" class="share-actions">
-          <a href="/" class="submit-button ghost-button">返回排行榜</a>
-          <a href={`/u/${encodeURIComponent(profile.login)}`} class="submit-button ghost-button">完整详情</a>
-          <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">分享到 Twitter</a>
+          <a href="/" class="submit-button ghost-button">Back to Leaderboard</a>
+          <a href={`/u/${encodeURIComponent(profile.login)}`} class="submit-button ghost-button">Full Profile</a>
+          <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="button-logo">
+              <path
+                fill="currentColor"
+                d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
+              />
+            </svg>
+            <span>Share on X</span>
+          </a>
           <button
             type="button"
             class="submit-button"
             id="share-button"
             data-share-url={shareUrl}
           >
-            复制分享链接
+            Copy Share Link
           </button>
         </div>
       </ReportScreen>
@@ -149,9 +155,9 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
-        shareButton.textContent = "已复制";
+        shareButton.textContent = "Copied";
         window.setTimeout(() => {
-          shareButton.textContent = "复制分享链接";
+          shareButton.textContent = "Copy Share Link";
         }, 1800);
         return;
       }
@@ -164,9 +170,9 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
       textarea.select();
       document.execCommand("copy");
       document.body.removeChild(textarea);
-      shareButton.textContent = "已复制";
+      shareButton.textContent = "Copied";
       window.setTimeout(() => {
-        shareButton.textContent = "复制分享链接";
+        shareButton.textContent = "Copy Share Link";
       }, 1800);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
@@ -205,16 +211,17 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
   }
 
   .twitter-button {
-    background: linear-gradient(135deg, #1d9bf0, #37c8ff);
+    background: #000000;
     box-shadow:
-      0 16px 28px rgba(29, 155, 240, 0.3),
+      0 16px 28px rgba(0, 0, 0, 0.34),
       inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   }
 
   .twitter-button:hover,
   .twitter-button:focus-visible {
+    background: #111111;
     box-shadow:
-      0 20px 36px rgba(29, 155, 240, 0.38),
+      0 20px 36px rgba(0, 0, 0, 0.42),
       inset 0 0 0 1px rgba(255, 255, 255, 0.16);
   }
 

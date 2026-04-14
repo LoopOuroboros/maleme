@@ -20,13 +20,13 @@ const report = profile?.report;
 const theme = getReportTheme(report?.sbai ?? 0);
 const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
 const title = profile ? `${profile.displayName} - maleme leaderboard` : "maleme leaderboard";
-const description = profile ? `${profile.displayName} 的 maleme 词频报告` : "maleme leaderboard";
+const description = profile ? `${profile.displayName}'s maleme profanity report` : "maleme leaderboard";
 const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
 const shareUrl = profile ? new URL(getSharePath(profile.githubId), getAppUrl(Astro.url)).toString() : "";
 const showSubmittedShareModal = Astro.url.searchParams.get("state") === "submitted";
 const twitterShareUrl = profile
   ? buildTwitterIntentUrl(
-    `${profile.displayName} 在 maleme leaderboard 排名 #${profile.rank}，SBAI ${report?.sbai.toFixed(2) ?? "0.00"}`,
+    `${profile.displayName} is ranked #${profile.rank} on the maleme leaderboard with SBAI ${report?.sbai.toFixed(2) ?? "0.00"}`,
     shareUrl,
   )
   : "";
@@ -94,7 +94,7 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
         wordCloudJson={wordCloudJson}
       >
         <div slot="actions" class="share-actions">
-          <a href="/" class="submit-button ghost-button">返回排行榜</a>
+          <a href="/" class="submit-button ghost-button">Back to Leaderboard</a>
           <a href={profile.profileUrl} target="_blank" rel="noreferrer" class="submit-button github-button">
             <svg viewBox="0 0 16 16" aria-hidden="true" class="button-logo">
               <path
@@ -108,16 +108,24 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
                 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
               />
             </svg>
-            <span>GitHub 主页</span>
+            <span>GitHub Profile</span>
           </a>
-          <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">分享到 Twitter</a>
+          <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="button-logo">
+              <path
+                fill="currentColor"
+                d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
+              />
+            </svg>
+            <span>Share on X</span>
+          </a>
           <button
             type="button"
             class="submit-button"
             id="share-button"
             data-share-url={shareUrl}
           >
-            复制分享链接
+            Copy Share Link
           </button>
         </div>
       </ReportScreen>
@@ -127,11 +135,11 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
         data-open-on-load={showSubmittedShareModal ? "true" : "false"}
       >
         <form method="dialog" class="share-modal-card">
-          <button type="submit" class="share-modal-close" aria-label="关闭分享弹窗">关闭</button>
-          <p class="share-modal-kicker">提交成功</p>
-          <h2 class="share-modal-title">分享到 X</h2>
+          <button type="submit" class="share-modal-close" aria-label="Close share dialog">Close</button>
+          <p class="share-modal-kicker">Submission Saved</p>
+          <h2 class="share-modal-title">Share on X</h2>
           <p class="share-modal-copy">
-            排行榜已经更新，分享 SBAI 指数。
+            Your leaderboard card is live. Post it now.
           </p>
           <div class="share-modal-actions">
             <a
@@ -141,7 +149,13 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
               class="submit-button twitter-button"
               id="share-modal-twitter"
             >
-              分享到 Twitter
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="button-logo">
+                <path
+                  fill="currentColor"
+                  d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
+                />
+              </svg>
+              <span>Share on X</span>
             </a>
             <button
               type="button"
@@ -149,7 +163,7 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
               id="share-modal-copy-button"
               data-share-url={shareUrl}
             >
-              复制分享链接
+              Copy Share Link
             </button>
           </div>
         </form>
@@ -194,7 +208,7 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
       }
 
       const originalText = button.textContent;
-      button.textContent = "已复制";
+      button.textContent = "Copied";
       window.setTimeout(() => {
         button.textContent = originalText;
       }, 1800);
@@ -330,16 +344,17 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
   }
 
   .twitter-button {
-    background: linear-gradient(135deg, #1d9bf0, #37c8ff);
+    background: #000000;
     box-shadow:
-      0 16px 28px rgba(29, 155, 240, 0.3),
+      0 16px 28px rgba(0, 0, 0, 0.34),
       inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   }
 
   .twitter-button:hover,
   .twitter-button:focus-visible {
+    background: #111111;
     box-shadow:
-      0 20px 36px rgba(29, 155, 240, 0.38),
+      0 20px 36px rgba(0, 0, 0, 0.42),
       inset 0 0 0 1px rgba(255, 255, 255, 0.16);
   }
 

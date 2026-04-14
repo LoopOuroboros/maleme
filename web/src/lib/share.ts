@@ -12,7 +12,7 @@ export function getShareImagePath(githubId: number | string) {
 }
 
 export function buildShareTitle(profile: ShareProfile) {
-  return `${profile.displayName} 的 SBAI 分享卡`;
+  return `${profile.displayName}'s SBAI Share Card`;
 }
 
 export function buildShareDescription(profile: ShareProfile) {
@@ -21,23 +21,23 @@ export function buildShareDescription(profile: ShareProfile) {
   return [
     `${profile.displayName} · #${profile.rank}`,
     `SBAI ${profile.report.sbai.toFixed(2)}`,
-    `输入 ${profile.report.messageCount.toLocaleString("zh-CN")}`,
-    `脏话 ${profile.report.profanityCount.toLocaleString("zh-CN")}`,
-    `Tokens ${profile.report.tokens.toLocaleString("zh-CN")}`,
+    `${profile.report.messageCount.toLocaleString("en-US")} messages`,
+    `${profile.report.profanityCount.toLocaleString("en-US")} profanities`,
+    `${profile.report.tokens.toLocaleString("en-US")} tokens`,
     sbaiStatus.state,
   ].join(" · ");
 }
 
 export function buildShareHeadline(profile: ShareProfile) {
-  return `${profile.displayName} 最近一次提交，把 AI 骂了 ${profile.report.profanityCount.toLocaleString("zh-CN")} 次。`;
+  return `${profile.displayName}'s latest submission cursed at AI ${profile.report.profanityCount.toLocaleString("en-US")} times.`;
 }
 
 export function buildShareButtonText(entry: LeaderboardEntry) {
   return [
-    `${entry.displayName} 在 maleme leaderboard 排名 #${entry.rank}`,
+    `${entry.displayName} is ranked #${entry.rank} on the maleme leaderboard`,
     `SBAI ${entry.sbai.toFixed(2)}`,
-    `脏话 ${entry.profanityCount.toLocaleString("zh-CN")} 次`,
-  ].join("，");
+    `${entry.profanityCount.toLocaleString("en-US")} profanities`,
+  ].join(" • ");
 }
 
 export function buildTwitterIntentUrl(text: string, url: string) {
