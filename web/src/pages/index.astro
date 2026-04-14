@@ -3,7 +3,6 @@ export const prerender = false;
 
 import BaseLayout from "../layouts/BaseLayout.astro";
 import LeaderboardTable from "../components/LeaderboardTable.astro";
-import Podium from "../components/Podium.astro";
 import StatsStrip from "../components/StatsStrip.astro";
 import { getLeaderboardSummary, hasDatabaseBinding, listLeaderboard } from "../lib/db";
 import type { LeaderboardSortDirection, LeaderboardSortKey } from "../lib/types";
@@ -18,7 +17,6 @@ const sortDirection: LeaderboardSortDirection = directionValue === "asc" ? "asc"
 
 const databaseReady = hasDatabaseBinding();
 const entries = databaseReady ? await listLeaderboard(50, sortKey, sortDirection) : [];
-const podium = entries.slice(0, 3);
 const summary = databaseReady
   ? await getLeaderboardSummary()
   : {
@@ -56,10 +54,6 @@ const stats = [
     <section class="intro">
       <StatsStrip items={stats} />
     </section>
-
-    <Podium items={podium} />
-
-    <div style="height: 18px;"></div>
 
     <LeaderboardTable entries={entries} sortKey={sortKey} sortDirection={sortDirection} />
   </main>
