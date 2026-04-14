@@ -113,6 +113,7 @@ Current canonical sources:
 
 - Claude Code:
   - `~/.claude/transcripts/`
+  - `~/.claude/projects/`
   - `~/.claude/stats-cache.json`
 
 - OpenCode:

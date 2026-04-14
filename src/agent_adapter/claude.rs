@@ -15,6 +15,23 @@ pub struct ClaudeAdapter {
     root_dir: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaudeLogKind {
+    Transcript,
+    Project,
+}
+
+#[derive(Debug, Clone)]
+struct ClaudeLogFile {
+    kind: ClaudeLogKind,
+    path: PathBuf,
+}
+
+#[derive(Debug, Default)]
+struct ClaudeLogIndex {
+    log_files: Vec<ClaudeLogFile>,
+}
+
 impl ClaudeAdapter {
     pub fn new(home: impl AsRef<Path>) -> Self {
         Self {
@@ -32,216 +49,124 @@ impl ClaudeAdapter {
         self.root_dir.join("transcripts")
     }
 
+    fn projects_dir(&self) -> PathBuf {
+        self.root_dir.join("projects")
+    }
+
     fn stats_cache_path(&self) -> PathBuf {
         self.root_dir.join("stats-cache.json")
     }
 
     pub async fn transcript_file_count(&self) -> Result<usize, AdapterError> {
-        let transcripts_dir = self.transcripts_dir();
-        let mut count = 0_usize;
-        let mut entries =
-            fs::read_dir(&transcripts_dir)
-                .await
-                .map_err(|source| AdapterError::Io {
-                    path: transcripts_dir.clone(),
-                    source,
-                })?;
-
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|source| AdapterError::Io {
-                path: transcripts_dir.clone(),
-                source,
-            })?
-        {
-            if entry.path().to_string_lossy().ends_with(".jsonl") {
-                count += 1;
-            }
-        }
-
-        Ok(count)
+        Ok(self.collect_log_index().await?.log_files.len())
     }
 
     pub async fn collect_messages_with_progress(
         &self,
         progress: ProgressBar,
     ) -> Result<Vec<UserMessage>, AdapterError> {
-        let transcripts_dir = self.transcripts_dir();
-        let mut paths = Vec::new();
-        let mut entries =
-            fs::read_dir(&transcripts_dir)
-                .await
-                .map_err(|source| AdapterError::Io {
-                    path: transcripts_dir.clone(),
-                    source,
-                })?;
-
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|source| AdapterError::Io {
-                path: transcripts_dir.clone(),
-                source,
-            })?
-        {
-            let path = entry.path();
-
-            if path.to_string_lossy().ends_with(".jsonl") {
-                paths.push(path);
-            }
-        }
-
-        paths.sort();
-
-        let total_files = paths.len();
+        let index = self.collect_log_index().await?;
+        let total_files = index.log_files.len();
         let mut messages = Vec::new();
 
-        for (index, path) in paths.into_iter().enumerate() {
+        for (index, log_file) in index.log_files.into_iter().enumerate() {
             progress.set_message(format!(
                 "Claude {}/{} · {}",
                 index + 1,
                 total_files,
-                path.file_name().unwrap().to_string_lossy()
+                log_file.path.file_name().unwrap().to_string_lossy()
             ));
-            let contents = fs::read_to_string(&path)
-                .await
-                .map_err(|source| AdapterError::Io {
-                    path: path.clone(),
-                    source,
-                })?;
+            let contents =
+                fs::read_to_string(&log_file.path)
+                    .await
+                    .map_err(|source| AdapterError::Io {
+                        path: log_file.path.clone(),
+                        source,
+                    })?;
 
             for (line_index, raw_line) in contents.lines().enumerate() {
                 let line_number = line_index + 1;
-                let kind: ClaudeEventKind = serde_json::from_str(raw_line).map_err(|source| {
-                    AdapterError::InvalidJsonLine {
-                        path: path.clone(),
-                        line: line_number,
-                        source,
-                    }
-                })?;
-
-                if kind.event_type == "user" {
-                    let event: ClaudeUserEvent =
-                        serde_json::from_str(raw_line).map_err(|source| {
-                            AdapterError::InvalidJsonLine {
-                                path: path.clone(),
-                                line: line_number,
-                                source,
-                            }
-                        })?;
-                    let datetime =
-                        OffsetDateTime::parse(&event.timestamp, &Rfc3339).map_err(|source| {
-                            AdapterError::InvalidTimestamp {
-                                path: path.clone(),
-                                line: line_number,
-                                value: event.timestamp.clone(),
-                                source,
-                            }
-                        })?;
-                    let text = normalize_claude_text(&event.content);
-
-                    if !text.is_empty() {
-                        messages.push(UserMessage {
-                            adapter: AdapterKind::Claude,
-                            text,
-                            time: (datetime.unix_timestamp_nanos() / 1_000_000) as i64,
-                        });
-                    }
+                if let Some(message) = parse_claude_user_message(&log_file, raw_line, line_number)?
+                {
+                    messages.push(message);
                 }
             }
 
             progress.inc(1);
         }
 
+        dedupe_messages(&mut messages);
         Ok(messages)
+    }
+
+    async fn collect_log_index(&self) -> Result<ClaudeLogIndex, AdapterError> {
+        let mut log_files = Vec::new();
+        let mut transcript_paths = Vec::new();
+
+        if fs::metadata(self.transcripts_dir()).await.is_ok() {
+            collect_jsonl_paths(&self.transcripts_dir(), false, &mut transcript_paths).await?;
+        }
+
+        let spawned_transcript_ids = collect_spawned_transcript_ids(&transcript_paths).await?;
+
+        for path in transcript_paths {
+            let session_id = path
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if spawned_transcript_ids.contains(&session_id) {
+                continue;
+            }
+
+            log_files.push(ClaudeLogFile {
+                kind: ClaudeLogKind::Transcript,
+                path,
+            });
+        }
+
+        if fs::metadata(self.projects_dir()).await.is_ok() {
+            let mut project_paths = Vec::new();
+            collect_jsonl_paths(&self.projects_dir(), true, &mut project_paths).await?;
+            log_files.extend(project_paths.into_iter().map(|path| ClaudeLogFile {
+                kind: ClaudeLogKind::Project,
+                path,
+            }));
+        }
+
+        log_files.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(ClaudeLogIndex { log_files })
     }
 }
 
 impl AgentAdapter for ClaudeAdapter {
     async fn check(&self) -> bool {
         fs::metadata(self.transcripts_dir()).await.is_ok()
+            || fs::metadata(self.projects_dir()).await.is_ok()
     }
 
     async fn poll(&self) -> Result<UserMessageStream, AdapterError> {
-        let transcripts_dir = self.transcripts_dir();
-        let mut paths = Vec::new();
-        let mut entries =
-            fs::read_dir(&transcripts_dir)
-                .await
-                .map_err(|source| AdapterError::Io {
-                    path: transcripts_dir.clone(),
-                    source,
-                })?;
-
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|source| AdapterError::Io {
-                path: transcripts_dir.clone(),
-                source,
-            })?
-        {
-            let path = entry.path();
-
-            if path.to_string_lossy().ends_with(".jsonl") {
-                paths.push(path);
-            }
-        }
-
-        paths.sort();
-
+        let paths = self.collect_log_index().await?.log_files;
         let mut messages = Vec::new();
 
-        for path in paths {
-            let contents = fs::read_to_string(&path)
-                .await
-                .map_err(|source| AdapterError::Io {
-                    path: path.clone(),
-                    source,
-                })?;
+        for log_file in paths {
+            let contents =
+                fs::read_to_string(&log_file.path)
+                    .await
+                    .map_err(|source| AdapterError::Io {
+                        path: log_file.path.clone(),
+                        source,
+                    })?;
 
             for (index, raw_line) in contents.lines().enumerate() {
                 let line_number = index + 1;
-                let kind: ClaudeEventKind = serde_json::from_str(raw_line).map_err(|source| {
-                    AdapterError::InvalidJsonLine {
-                        path: path.clone(),
-                        line: line_number,
-                        source,
-                    }
-                })?;
-
-                if kind.event_type == "user" {
-                    let event: ClaudeUserEvent =
-                        serde_json::from_str(raw_line).map_err(|source| {
-                            AdapterError::InvalidJsonLine {
-                                path: path.clone(),
-                                line: line_number,
-                                source,
-                            }
-                        })?;
-                    let datetime =
-                        OffsetDateTime::parse(&event.timestamp, &Rfc3339).map_err(|source| {
-                            AdapterError::InvalidTimestamp {
-                                path: path.clone(),
-                                line: line_number,
-                                value: event.timestamp.clone(),
-                                source,
-                            }
-                        })?;
-                    let text = normalize_claude_text(&event.content);
-
-                    if !text.is_empty() {
-                        messages.push(UserMessage {
-                            adapter: AdapterKind::Claude,
-                            text,
-                            time: (datetime.unix_timestamp_nanos() / 1_000_000) as i64,
-                        });
-                    }
+                if let Some(message) = parse_claude_user_message(&log_file, raw_line, line_number)?
+                {
+                    messages.push(message);
                 }
             }
         }
 
+        dedupe_messages(&mut messages);
         Ok(stream_messages(messages))
     }
 
@@ -279,12 +204,36 @@ struct ClaudeEventKind {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ClaudeUserEvent {
-    #[serde(rename = "type")]
-    _event_type: String,
     timestamp: String,
     content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeProjectUserEvent {
+    #[serde(default, rename = "isSidechain")]
+    is_sidechain: bool,
+    timestamp: String,
+    message: ClaudeProjectMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeProjectMessage {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeTaskToolResultEvent {
+    #[serde(rename = "tool_name")]
+    tool_name: String,
+    #[serde(rename = "tool_output")]
+    tool_output: Option<ClaudeTaskToolOutput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeTaskToolOutput {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -313,6 +262,157 @@ struct ClaudeModelUsage {
     _context_window: serde_json::Value,
 }
 
+async fn collect_jsonl_paths(
+    root: &Path,
+    recursive: bool,
+    output: &mut Vec<PathBuf>,
+) -> Result<(), AdapterError> {
+    let mut entries = fs::read_dir(root)
+        .await
+        .map_err(|source| AdapterError::Io {
+            path: root.to_path_buf(),
+            source,
+        })?;
+
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|source| AdapterError::Io {
+            path: root.to_path_buf(),
+            source,
+        })?
+    {
+        let path = entry.path();
+        let file_type = entry.file_type().await.map_err(|source| AdapterError::Io {
+            path: path.clone(),
+            source,
+        })?;
+
+        if file_type.is_dir() && recursive {
+            Box::pin(collect_jsonl_paths(&path, true, output)).await?;
+            continue;
+        }
+
+        if file_type.is_file() && path.to_string_lossy().ends_with(".jsonl") {
+            output.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+async fn collect_spawned_transcript_ids(
+    transcript_paths: &[PathBuf],
+) -> Result<std::collections::BTreeSet<String>, AdapterError> {
+    let mut spawned = std::collections::BTreeSet::new();
+
+    for path in transcript_paths {
+        let contents = fs::read_to_string(path)
+            .await
+            .map_err(|source| AdapterError::Io {
+                path: path.clone(),
+                source,
+            })?;
+
+        for (line_index, raw_line) in contents.lines().enumerate() {
+            let line_number = line_index + 1;
+            let kind: ClaudeEventKind =
+                serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                    path: path.clone(),
+                    line: line_number,
+                    source,
+                })?;
+
+            if kind.event_type != "tool_result" {
+                continue;
+            }
+
+            let event: ClaudeTaskToolResultEvent =
+                serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                    path: path.clone(),
+                    line: line_number,
+                    source,
+                })?;
+
+            if event.tool_name != "task" {
+                continue;
+            }
+
+            if let Some(session_id) = event.tool_output.and_then(|output| output.session_id) {
+                spawned.insert(session_id);
+            }
+        }
+    }
+
+    Ok(spawned)
+}
+
+fn parse_claude_user_message(
+    log_file: &ClaudeLogFile,
+    raw_line: &str,
+    line_number: usize,
+) -> Result<Option<UserMessage>, AdapterError> {
+    let kind: ClaudeEventKind =
+        serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+            path: log_file.path.clone(),
+            line: line_number,
+            source,
+        })?;
+
+    if kind.event_type != "user" {
+        return Ok(None);
+    }
+
+    let (timestamp, content) = match log_file.kind {
+        ClaudeLogKind::Transcript => {
+            let event: ClaudeUserEvent =
+                serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                    path: log_file.path.clone(),
+                    line: line_number,
+                    source,
+                })?;
+            (event.timestamp, event.content)
+        }
+        ClaudeLogKind::Project => {
+            let event: ClaudeProjectUserEvent =
+                serde_json::from_str(raw_line).map_err(|source| AdapterError::InvalidJsonLine {
+                    path: log_file.path.clone(),
+                    line: line_number,
+                    source,
+                })?;
+            if event.is_sidechain {
+                return Ok(None);
+            }
+            (event.timestamp, event.message.content)
+        }
+    };
+
+    let datetime = OffsetDateTime::parse(&timestamp, &Rfc3339).map_err(|source| {
+        AdapterError::InvalidTimestamp {
+            path: log_file.path.clone(),
+            line: line_number,
+            value: timestamp.clone(),
+            source,
+        }
+    })?;
+    let text = normalize_claude_text(&content);
+
+    if text.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(UserMessage {
+        adapter: AdapterKind::Claude,
+        text,
+        time: (datetime.unix_timestamp_nanos() / 1_000_000) as i64,
+    }))
+}
+
+fn dedupe_messages(messages: &mut Vec<UserMessage>) {
+    messages.sort_by(|left, right| left.time.cmp(&right.time).then(left.text.cmp(&right.text)));
+    messages.dedup_by(|left, right| left.time == right.time && left.text == right.text);
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -332,6 +432,7 @@ mod tests {
             concat!(
                 "{\"type\":\"assistant\",\"timestamp\":\"2026-03-04T07:01:57.000Z\",\"content\":\"ignore\"}\n",
                 "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:56.809Z\",\"content\":\"\\n\\n---\\n\\n[SYSTEM DIRECTIVE: TEST]\\nignore\\n\\n---\\n\\nactual user text\\n<!-- OMO_INTERNAL_INITIATOR -->\"}\n",
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:57.500Z\",\"content\":\"[analyze-mode]\\nGather context first.\\n\\n---\\n\\n\\n\\n---\\n\\n[SYSTEM DIRECTIVE: TEST]\\nignore\\n\\n---\\n\\nContinue with the full answer.\"}\n",
                 "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:58.000Z\",\"content\":\"[>0;276;0c]10;rgb:e2e2/e8e8/f0f0\\u001b\\\\]11;rgb:0202/0606/1717\\u001b\\n\"}\n",
             ),
         )
@@ -345,10 +446,81 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
         assert_eq!(format!("{:?}", messages[0].adapter), "Claude");
         assert_eq!(messages[0].text, "actual user text");
         assert_eq!(messages[0].time, 1_772_607_716_809);
+        assert_eq!(
+            messages[1].text,
+            "[analyze-mode]\nGather context first.\n\nContinue with the full answer."
+        );
+    }
+
+    #[tokio::test]
+    async fn reads_project_logs_and_dedupes_messages() {
+        let temp = tempdir().unwrap();
+        let claude_dir = temp.path().join(".claude");
+        let transcripts = claude_dir.join("transcripts");
+        let projects = claude_dir.join("projects/workspace");
+        fs::create_dir_all(&transcripts).unwrap();
+        fs::create_dir_all(&projects).unwrap();
+        fs::write(
+            transcripts.join("ses_1.jsonl"),
+            "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:56.809Z\",\"content\":\"shared message\",\"extra\":\"ok\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            projects.join("session.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:55.000Z\",\"isSidechain\":true,\"message\":{\"role\":\"user\",\"content\":\"Warmup\"}}\n",
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:56.809Z\",\"message\":{\"role\":\"user\",\"content\":\"shared message\"}}\n",
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:02:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"project only\"}}\n",
+            ),
+        )
+        .unwrap();
+
+        let messages = ClaudeAdapter::new(temp.path())
+            .poll()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].text, "shared message");
+        assert_eq!(messages[1].text, "project only");
+    }
+
+    #[tokio::test]
+    async fn excludes_spawned_subagent_transcripts() {
+        let temp = tempdir().unwrap();
+        let transcripts = temp.path().join(".claude/transcripts");
+        fs::create_dir_all(&transcripts).unwrap();
+        fs::write(
+            transcripts.join("ses_main.jsonl"),
+            concat!(
+                "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:01:56.809Z\",\"content\":\"real user message\"}\n",
+                "{\"type\":\"tool_result\",\"timestamp\":\"2026-03-04T07:01:57.000Z\",\"tool_name\":\"task\",\"tool_output\":{\"sessionId\":\"ses_child\"}}\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            transcripts.join("ses_child.jsonl"),
+            "{\"type\":\"user\",\"timestamp\":\"2026-03-04T07:02:00.000Z\",\"content\":\"generated subagent prompt\"}\n",
+        )
+        .unwrap();
+
+        let messages = ClaudeAdapter::new(temp.path())
+            .poll()
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].text, "real user message");
     }
 
     #[tokio::test]

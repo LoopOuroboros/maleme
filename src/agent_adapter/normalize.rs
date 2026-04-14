@@ -29,13 +29,41 @@ pub fn normalize_claude_text(raw: &str) -> String {
         return String::new();
     }
 
-    if trimmed.starts_with("---") && trimmed.contains("[SYSTEM DIRECTIVE:") {
-        let parts: Vec<&str> = trimmed.split(CLAUDE_WRAPPER_DELIMITER).collect();
-        let content = parts[parts.len() - 1].trim();
-        return content.to_owned();
+    let trimmed = strip_claude_tool_echo(trimmed);
+
+    if trimmed.contains("[SYSTEM DIRECTIVE:") {
+        let normalized = if trimmed.starts_with("---\n\n[SYSTEM DIRECTIVE:") {
+            format!("\n\n{trimmed}")
+        } else {
+            trimmed.to_owned()
+        };
+        let preserved_parts: Vec<&str> = normalized
+            .split(CLAUDE_WRAPPER_DELIMITER)
+            .map(str::trim)
+            .filter(|part| !part.is_empty() && !part.starts_with("[SYSTEM DIRECTIVE:"))
+            .collect();
+
+        if !preserved_parts.is_empty() {
+            return preserved_parts.join("\n\n");
+        }
     }
 
     trimmed.to_owned()
+}
+
+fn strip_claude_tool_echo(text: &str) -> &str {
+    const TOOL_ECHO_PREFIX: &str = "Called the ";
+    const TOOL_ECHO_MARKERS: [&str; 4] = ["<path>", "<content>", "<type>file</type>", "<type>directory</type>"];
+
+    if !TOOL_ECHO_MARKERS.iter().any(|marker| text.contains(marker)) {
+        return text;
+    }
+
+    if let Some(index) = text.find(TOOL_ECHO_PREFIX) {
+        return text[..index].trim_end();
+    }
+
+    text
 }
 
 fn is_control_only(text: &str) -> bool {
@@ -95,6 +123,21 @@ mod tests {
     fn strips_claude_wrapper() {
         let input = "\n\n---\n\n[SYSTEM DIRECTIVE: TEST]\nignore\n\n---\n\nactual user text\n<!-- OMO_INTERNAL_INITIATOR -->";
         assert_eq!(normalize_claude_text(input), "actual user text");
+    }
+
+    #[test]
+    fn keeps_user_text_around_claude_wrapper() {
+        let input = "[analyze-mode]\nGather context first.\n\n---\n\n\n\n---\n\n[SYSTEM DIRECTIVE: TEST]\nignore\n\n---\n\nContinue with the full answer.";
+        assert_eq!(
+            normalize_claude_text(input),
+            "[analyze-mode]\nGather context first.\n\nContinue with the full answer."
+        );
+    }
+
+    #[test]
+    fn strips_claude_inline_tool_echo() {
+        let input = "Please include these details.\nCalled the Read tool with the following input: {\"filePath\":\"/tmp/file\"}\n<path>/tmp/file</path>\n<type>file</type>\n<content>hello</content>";
+        assert_eq!(normalize_claude_text(input), "Please include these details.");
     }
 
     #[test]
