@@ -7,9 +7,9 @@ export async function listTarotCards() {
 
 export async function getTarotCard(slug: string) {
   const cards = await listTarotCards();
-  return cards.find((card) => card.slug === slug) ?? null;
+  return cards.find((card) => card.id === slug) ?? null;
 }
 
-export function getTarotCardHref(card: Pick<CollectionEntry<"tarot">, "slug">) {
-  return `/cards/${card.slug}`;
+export function getTarotCardHref(card: Pick<CollectionEntry<"tarot">, "id">) {
+  return `/cards/${card.id}`;
 }

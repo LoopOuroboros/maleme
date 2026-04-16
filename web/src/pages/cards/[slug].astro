@@ -16,7 +16,7 @@ if (!card) {
 
 const rendered = card ? await render(card) : null;
 const Content = rendered?.Content;
-const otherCards = allCards.filter((entry) => entry.slug !== slug).slice(0, 5);
+const otherCards = allCards.filter((entry) => entry.id !== slug).slice(0, 5);
 ---
 
 <BaseLayout

@@ -9,7 +9,7 @@ type Props = {
 const cards = [...Astro.props.cards].sort((left, right) => left.data.order - right.data.order);
 const cardsJson = JSON.stringify(
   cards.map((card) => ({
-    slug: card.slug,
+    slug: card.id,
     code: card.data.code,
     title: card.data.title,
     summary: card.data.summary,
@@ -31,7 +31,7 @@ const cardsJson = JSON.stringify(
       <button type="button" class="draw-button" id="draw-button">Draw a Card</button>
       <a class="hero-link" href="#deck">Open the Deck</a>
     </div>
-    <a class="draw-result" id="draw-result" href={`/cards/${cards[0]?.slug ?? ""}`}>
+    <a class="draw-result" id="draw-result" href={`/cards/${cards[0]?.id ?? ""}`}>
       <span class="draw-result-code">{cards[0]?.data.code}</span>
       <span class="draw-result-title">{cards[0]?.data.title}</span>
       <span class="draw-result-omen">{cards[0]?.data.omen}</span>
@@ -53,7 +53,7 @@ const cardsJson = JSON.stringify(
             href={`/cards/${card.slug}`}
             class="tarot-card"
             data-tarot-card
-            data-slug={card.slug}
+            data-slug={card.id}
             data-code={card.data.code}
             data-title={card.data.title}
             data-summary={card.data.summary}
