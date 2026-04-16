@@ -32,7 +32,7 @@ const cardsJson = JSON.stringify(
       locale={locale}
     />
 
-    <section class="stage surface">
+    <section class="stage surface" id="draw-stage">
       <div class="stage-copy">
         <div class="hero-kicker">{t.tarot.kicker}</div>
         <h1 class="hero-title">{t.tarot.heroTitle}</h1>
@@ -40,60 +40,111 @@ const cardsJson = JSON.stringify(
       </div>
 
       <div class="draw-experience">
-        <button type="button" class="draw-card" id="draw-button" aria-label={t.tarot.drawButton}>
-          <span class="draw-card-inner">
-            <span class="draw-card-code">M</span>
-            <span class="draw-card-title">{t.tarot.cardFaceLabel}</span>
-            <span class="draw-card-hint">{t.tarot.cardFaceHint}</span>
-          </span>
-        </button>
+        <div class="draw-orbit" id="draw-orbit">
+          <button type="button" class="draw-card" id="draw-button" aria-label={t.tarot.drawButton}>
+            <span class="draw-card-rotor">
+              <span class="draw-card-face draw-card-front">
+                <span class="draw-card-code">M</span>
+                <span class="draw-card-title">{t.tarot.cardFaceLabel}</span>
+                <span class="draw-card-hint">{t.tarot.cardFaceHint}</span>
+              </span>
 
-        <div class="draw-result-shell" id="draw-result-shell">
-          <div class="draw-result-label">{t.tarot.resultLabel}</div>
-          <a class="draw-result" id="draw-result" href={`/cards/${initialCard.id}`}>
-            <span class="draw-result-code">{initialCard.data.code}</span>
-            <span class="draw-result-title">{initialCard.data.title}</span>
-            <span class="draw-result-omen">{initialCard.data.omen}</span>
-          </a>
-          <div class="draw-actions">
+              <span class="draw-card-face draw-card-back">
+                <span class="draw-result-label">{t.tarot.resultLabel}</span>
+                <span class="draw-result-code" id="draw-result-code">{initialCard.data.code}</span>
+                <span class="draw-result-title" id="draw-result-title">{initialCard.data.title}</span>
+                <span class="draw-result-omen" id="draw-result-omen">{initialCard.data.omen}</span>
+              </span>
+            </span>
+          </button>
+
+          <div class="draw-actions" id="draw-actions">
             <a class="open-card" id="open-card" href={`/cards/${initialCard.id}`}>{t.tarot.openCard}</a>
             <button type="button" class="draw-again" id="draw-again">{t.tarot.drawAgain}</button>
           </div>
         </div>
       </div>
+
+      <div class="focus-wash" aria-hidden="true"></div>
     </section>
   </div>
 </main>
 
 <script define:vars={{ cardsJson }}>
   const cards = JSON.parse(cardsJson);
+  const stage = document.getElementById("draw-stage");
+  const orbit = document.getElementById("draw-orbit");
   const drawButton = document.getElementById("draw-button");
   const drawAgainButton = document.getElementById("draw-again");
-  const drawResultShell = document.getElementById("draw-result-shell");
-  const drawResult = document.getElementById("draw-result");
   const openCard = document.getElementById("open-card");
+  const resultCode = document.getElementById("draw-result-code");
+  const resultTitle = document.getElementById("draw-result-title");
+  const resultOmen = document.getElementById("draw-result-omen");
+  let busy = false;
 
   function paint(card) {
-    drawResult.href = `/cards/${card.slug}`;
     openCard.href = `/cards/${card.slug}`;
-    drawResult.querySelector(".draw-result-code").textContent = card.code;
-    drawResult.querySelector(".draw-result-title").textContent = card.title;
-    drawResult.querySelector(".draw-result-omen").textContent = card.omen;
-    drawResultShell.classList.add("is-visible");
+    resultCode.textContent = card.code;
+    resultTitle.textContent = card.title;
+    resultOmen.textContent = card.omen;
   }
 
-  function draw() {
-    drawButton.classList.remove("is-shuffling");
-    void drawButton.offsetWidth;
-    drawButton.classList.add("is-shuffling");
-    const card = cards[Math.floor(Math.random() * cards.length)];
+  function pickCard() {
+    return cards[Math.floor(Math.random() * cards.length)];
+  }
+
+  function moveOrbitToCenter() {
+    const rect = orbit.getBoundingClientRect();
+    orbit.style.setProperty("--orbit-start-x", `${rect.left + rect.width / 2 - window.innerWidth / 2}px`);
+    orbit.style.setProperty("--orbit-start-y", `${rect.top + rect.height / 2 - window.innerHeight / 2}px`);
+    stage.classList.add("is-focused");
+    orbit.classList.add("is-floating", "is-animating");
     window.setTimeout(() => {
-      paint(card);
-    }, 220);
+      orbit.classList.remove("is-animating");
+    }, 580);
   }
 
-  drawButton.addEventListener("click", draw);
-  drawAgainButton.addEventListener("click", draw);
+  function reveal(card) {
+    paint(card);
+    orbit.classList.add("is-revealed");
+    busy = false;
+  }
+
+  function drawFromStage() {
+    if (busy) {
+      return;
+    }
+
+    busy = true;
+    moveOrbitToCenter();
+    const card = pickCard();
+    window.setTimeout(() => {
+      reveal(card);
+    }, 620);
+  }
+
+  function redrawAtCenter() {
+    if (busy) {
+      return;
+    }
+
+    busy = true;
+    orbit.classList.remove("is-revealed");
+    const card = pickCard();
+    window.setTimeout(() => {
+      reveal(card);
+    }, 280);
+  }
+
+  drawButton.addEventListener("click", () => {
+    if (orbit.classList.contains("is-floating")) {
+      return;
+    }
+
+    drawFromStage();
+  });
+
+  drawAgainButton.addEventListener("click", redrawAtCenter);
 </script>
 
 <style>
@@ -102,6 +153,7 @@ const cardsJson = JSON.stringify(
   }
 
   .stage {
+    position: relative;
     min-height: calc(100vh - 108px);
     padding: 28px;
     display: grid;
@@ -115,10 +167,30 @@ const cardsJson = JSON.stringify(
     overflow: hidden;
   }
 
+  .focus-wash {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(255, 255, 255, 0.04), rgba(18, 24, 38, 0.08));
+    opacity: 0;
+    transition: opacity 320ms ease;
+    pointer-events: none;
+  }
+
+  .stage.is-focused .focus-wash {
+    opacity: 1;
+  }
+
   .stage-copy {
     display: grid;
     gap: 14px;
     align-content: center;
+    transition: opacity 320ms ease, transform 320ms ease, filter 320ms ease;
+  }
+
+  .stage.is-focused .stage-copy {
+    opacity: 0.14;
+    transform: translateX(-20px) scale(0.98);
+    filter: blur(8px);
   }
 
   .hero-kicker {
@@ -147,17 +219,39 @@ const cardsJson = JSON.stringify(
   .draw-experience {
     display: grid;
     justify-items: center;
-    gap: 18px;
+    align-content: center;
+  }
+
+  .draw-orbit {
+    width: min(100%, 360px);
+    display: grid;
+    justify-items: center;
+    gap: 16px;
+    z-index: 2;
+  }
+
+  .draw-orbit.is-floating {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: min(360px, calc(100vw - 40px));
+    transform: translate(-50%, -50%);
+    z-index: 40;
+  }
+
+  .draw-orbit.is-animating {
+    animation: orbit-to-center 580ms cubic-bezier(0.2, 0.82, 0.2, 1) forwards;
   }
 
   .draw-card {
     position: relative;
-    width: min(100%, 360px);
+    width: 100%;
     aspect-ratio: 0.72;
     padding: 0;
     border: 0;
     background: none;
     cursor: pointer;
+    perspective: 1800px;
   }
 
   .draw-card::before,
@@ -169,7 +263,7 @@ const cardsJson = JSON.stringify(
     border: 1px solid rgba(255, 91, 97, 0.18);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(246, 248, 255, 0.86));
     box-shadow: 0 30px 70px rgba(19, 32, 51, 0.14);
-    transform-origin: center;
+    transition: opacity 220ms ease, transform 220ms ease;
   }
 
   .draw-card::before {
@@ -180,24 +274,54 @@ const cardsJson = JSON.stringify(
     transform: translate(14px, 12px) rotate(7deg);
   }
 
-  .draw-card-inner {
+  .draw-orbit.is-floating .draw-card::before,
+  .draw-orbit.is-floating .draw-card::after {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.98);
+  }
+
+  .draw-card-rotor {
     position: absolute;
     inset: 0;
-    z-index: 1;
+    transform-style: preserve-3d;
+    transition: transform 860ms cubic-bezier(0.2, 0.72, 0.18, 1);
+  }
+
+  .draw-orbit.is-revealed .draw-card-rotor {
+    transform: rotateY(180deg);
+  }
+
+  .draw-card-face {
+    position: absolute;
+    inset: 0;
     display: grid;
-    place-items: center;
+    align-content: center;
+    justify-items: center;
     gap: 12px;
     padding: 24px;
     border-radius: 8px;
     border: 1px solid rgba(255, 91, 97, 0.24);
+    box-shadow: 0 34px 80px rgba(19, 32, 51, 0.16);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .draw-card-front {
     background:
       radial-gradient(circle at 50% 18%, rgba(255, 183, 3, 0.18), transparent 22%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(249, 251, 255, 0.9));
-    box-shadow: 0 34px 80px rgba(19, 32, 51, 0.16);
   }
 
-  .draw-card.is-shuffling .draw-card-inner {
-    animation: shuffle 460ms ease;
+  .draw-card-back {
+    align-content: start;
+    justify-items: start;
+    gap: 10px;
+    text-align: left;
+    transform: rotateY(180deg);
+    background:
+      radial-gradient(circle at top right, rgba(255, 91, 97, 0.16), transparent 26%),
+      radial-gradient(circle at bottom left, rgba(255, 183, 3, 0.14), transparent 24%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 251, 255, 0.92));
   }
 
   .draw-card-code {
@@ -226,40 +350,12 @@ const cardsJson = JSON.stringify(
     max-width: 16rem;
   }
 
-  .draw-result-shell {
-    width: min(100%, 360px);
-    display: grid;
-    gap: 10px;
-    opacity: 0;
-    transform: translateY(12px);
-    pointer-events: none;
-    transition: opacity 220ms ease, transform 220ms ease;
-  }
-
-  .draw-result-shell.is-visible {
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
-  }
-
   .draw-result-label {
     font-size: 12px;
     font-weight: 900;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent);
-    text-align: center;
-  }
-
-  .draw-result {
-    display: grid;
-    gap: 8px;
-    padding: 18px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 91, 97, 0.22);
-    background: rgba(255, 255, 255, 0.84);
-    box-shadow: 0 20px 40px rgba(19, 32, 51, 0.08);
-    text-decoration: none;
   }
 
   .draw-result-code {
@@ -271,20 +367,32 @@ const cardsJson = JSON.stringify(
   }
 
   .draw-result-title {
-    font-size: clamp(24px, 3vw, 32px);
-    line-height: 1;
+    font-size: clamp(30px, 3vw, 42px);
+    line-height: 0.98;
     font-weight: 900;
   }
 
   .draw-result-omen {
     color: var(--muted);
-    line-height: 1.65;
+    line-height: 1.7;
+    font-size: 15px;
   }
 
   .draw-actions {
+    width: 100%;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    opacity: 0;
+    transform: translateY(14px);
+    pointer-events: none;
+    transition: opacity 240ms ease, transform 240ms ease;
+  }
+
+  .draw-orbit.is-revealed .draw-actions {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
   }
 
   .open-card,
@@ -311,22 +419,24 @@ const cardsJson = JSON.stringify(
   .draw-again {
     border: 1px solid var(--border);
     color: var(--text);
-    background: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.88);
     cursor: pointer;
   }
 
-  @keyframes shuffle {
+  @keyframes orbit-to-center {
     0% {
-      transform: translateX(0) rotate(0deg);
+      transform: translate(
+        calc(-50% + var(--orbit-start-x)),
+        calc(-50% + var(--orbit-start-y))
+      ) scale(1);
     }
-    30% {
-      transform: translateX(-12px) rotate(-4deg);
+
+    72% {
+      transform: translate(-50%, -50%) scale(1.04);
     }
-    60% {
-      transform: translateX(10px) rotate(4deg);
-    }
+
     100% {
-      transform: translateX(0) rotate(0deg);
+      transform: translate(-50%, -50%) scale(1);
     }
   }
 
@@ -345,6 +455,10 @@ const cardsJson = JSON.stringify(
     .hero-title {
       max-width: none;
       font-size: clamp(34px, 10vw, 58px);
+    }
+
+    .draw-orbit.is-floating {
+      width: min(340px, calc(100vw - 28px));
     }
   }
 </style>
