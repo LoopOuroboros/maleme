@@ -5,6 +5,7 @@ import type {
   ReportModelSbai,
   ReportWordCount,
 } from "./types";
+import type { Locale } from "./i18n";
 
 type ReportTheme = {
   bg: string;
@@ -212,35 +213,72 @@ export function parseModelSbaiJson(value: string | null | undefined) {
   }
 }
 
-export function getSbaiStatus(sbai: number) {
+export function getSbaiStatus(sbai: number, locale: Locale = "zh-CN") {
   if (sbai < 0.5) {
-    return {
-      state: "还能忍",
-      copy: "AI 还在试探，你已经有点绷不住了。",
-    };
+    return locale === "zh-CN"
+      ? {
+          state: "还能忍",
+          copy: "AI 还在试探，你已经有点绷不住了。",
+        }
+      : {
+          state: "Holding together",
+          copy: "The AI is still probing, and your patience is starting to fray.",
+        };
   }
 
   if (sbai < 2) {
-    return {
-      state: "开始红温",
-      copy: "AI 每多自信一分，人就更想当场开骂。",
-    };
+    return locale === "zh-CN"
+      ? {
+          state: "开始红温",
+          copy: "AI 每多自信一分，人就更想当场开骂。",
+        }
+      : {
+          state: "Temperature rising",
+          copy: "Every extra point of AI confidence makes cursing feel more justified.",
+        };
   }
 
   if (sbai < 5) {
-    return {
-      state: "马上开骂",
-      copy: "AI 写得越笃定，人越接近发疯。",
-    };
+    return locale === "zh-CN"
+      ? {
+          state: "马上开骂",
+          copy: "AI 写得越笃定，人越接近发疯。",
+        }
+      : {
+          state: "On the edge",
+          copy: "The more certain the AI sounds, the closer a human gets to losing it.",
+        };
   }
 
-  return {
-    state: "彻底爆炸",
-    copy: "已经不是调试，是一场精神消耗战。",
-  };
+  return locale === "zh-CN"
+    ? {
+        state: "彻底爆炸",
+        copy: "已经不是调试，是一场精神消耗战。",
+      }
+    : {
+        state: "Total meltdown",
+        copy: "This is no longer debugging. It is a straight-up war of attrition.",
+      };
 }
 
-export function getReportHeadlineHtml(rangeStart: string, rangeEnd: string, totalProfanities: number) {
+export function getReportHeadlineHtml(
+  rangeStart: string,
+  rangeEnd: string,
+  totalProfanities: number,
+  locale: Locale = "zh-CN",
+) {
+  if (locale === "en") {
+    if (totalProfanities < 10) {
+      return `Still waters. From ${rangeStart} to ${rangeEnd}, you cursed at AI only <span class="headline-count">${totalProfanities}</span> times.`;
+    }
+
+    if (totalProfanities < 100) {
+      return `Good news. From ${rangeStart} to ${rangeEnd}, you cursed at AI just <span class="headline-count">${totalProfanities}</span> times. That is suspiciously calm.`;
+    }
+
+    return `Good news. From ${rangeStart} to ${rangeEnd}, you cursed at AI <span class="headline-count">${totalProfanities}</span> times in total.`;
+  }
+
   if (totalProfanities < 10) {
     return `心如止水。${rangeStart} 到 ${rangeEnd}，你只骂了 AI <span class="headline-count">${totalProfanities}</span> 次。`;
   }

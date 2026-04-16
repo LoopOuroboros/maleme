@@ -2,6 +2,7 @@
 import LeaderboardTable from "./LeaderboardTable.astro";
 import SiteHeader from "./SiteHeader.astro";
 import StatsStrip from "./StatsStrip.astro";
+import { formatTemplate, getI18n, type Locale } from "../lib/i18n";
 import type { LeaderboardEntry, LeaderboardSortDirection, LeaderboardSortKey } from "../lib/types";
 
 type Props = {
@@ -11,27 +12,34 @@ type Props = {
   stats: { label: string; value: string | number; tone: "red" | "teal" | "gold" }[];
   submittedRank: number;
   submittedState: boolean;
+  locale: Locale;
 };
 
-const { entries, sortKey, sortDirection, stats, submittedRank, submittedState } = Astro.props;
+const { entries, sortKey, sortDirection, stats, submittedRank, submittedState, locale } = Astro.props;
+const t = getI18n(locale);
 ---
 
 <main class="shell">
-  <SiteHeader active="leaderboard" title="maleme leaderboard" subtitle="rank the finest AI rage" />
+  <SiteHeader
+    active="leaderboard"
+    title={t.leaderboard.brandTitle}
+    subtitle={t.leaderboard.brandSubtitle}
+    locale={locale}
+  />
 
   <section class="intro">
     {
       submittedState && submittedRank > 0 && (
         <div class="submission-banner surface" data-submission-banner>
-          <div class="submission-banner-kicker">Submission saved</div>
-          <div class="submission-banner-title">You are now ranked #{submittedRank} here.</div>
+          <div class="submission-banner-kicker">{t.leaderboard.submissionSaved}</div>
+          <div class="submission-banner-title">{formatTemplate(t.leaderboard.rankedHere, { rank: submittedRank })}</div>
         </div>
       )
     }
     <StatsStrip items={stats} />
   </section>
 
-  <LeaderboardTable entries={entries} sortKey={sortKey} sortDirection={sortDirection} />
+  <LeaderboardTable entries={entries} sortKey={sortKey} sortDirection={sortDirection} locale={locale} />
 </main>
 
 <script>

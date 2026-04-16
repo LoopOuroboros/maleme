@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { getLeaderboardProfileByGithubId, hasDatabaseBinding } from "../../lib/db";
+import { getI18n, getNumberLocale, resolveLocale } from "../../lib/i18n";
 import { getReportTheme, getSbaiStatus } from "../../lib/report";
 
 export const prerender = false;
@@ -23,7 +24,8 @@ function metricTile(x: number, label: string, value: string) {
   `;
 }
 
-export const GET: APIRoute = async ({ params }) => {
+export const GET: APIRoute = async (context) => {
+  const { params } = context;
   const githubId = Number(params.githubId || "");
   if (!hasDatabaseBinding() || !Number.isInteger(githubId) || githubId <= 0) {
     return new Response("Not found", { status: 404 });
@@ -35,9 +37,12 @@ export const GET: APIRoute = async ({ params }) => {
   }
 
   const report = profile.report;
+  const locale = resolveLocale(context);
+  const t = getI18n(locale);
+  const numberLocale = getNumberLocale(locale);
   const theme = getReportTheme(report.sbai);
-  const sbaiStatus = getSbaiStatus(report.sbai);
-  const words = report.wordCounts.slice(0, 3).map((item) => `${item.term} ${item.count}`).join(" / ") || "暂无高频词条";
+  const sbaiStatus = getSbaiStatus(report.sbai, locale);
+  const words = report.wordCounts.slice(0, 3).map((item) => `${item.term} ${item.count}`).join(" / ") || (locale === "zh-CN" ? "暂无高频词条" : "No high-frequency terms yet");
   const svg = `
     <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect width="1200" height="630" fill="${escapeXml(theme.bg)}" />
@@ -54,19 +59,19 @@ export const GET: APIRoute = async ({ params }) => {
 
       <rect x="736" y="56" width="392" height="420" rx="24" fill="${escapeXml(theme.sbaiSurfaceTop)}" stroke="${escapeXml(theme.sbaiBorder)}" />
       <circle cx="836" cy="138" r="124" fill="${escapeXml(theme.sbaiGlow)}" />
-      <text x="772" y="116" fill="${escapeXml(theme.sbaiText)}" font-size="22">SBAI 指数</text>
+      <text x="772" y="116" fill="${escapeXml(theme.sbaiText)}" font-size="22">${escapeXml(t.report.sbaiLabel)}</text>
       <text x="772" y="158" fill="${escapeXml(theme.sbaiMuted)}" font-size="24">${escapeXml(sbaiStatus.state)}</text>
       <text x="772" y="292" fill="${escapeXml(theme.sbaiText)}" font-size="106" font-weight="800">${report.sbai.toFixed(2)}</text>
-      <text x="772" y="336" fill="${escapeXml(theme.sbaiText)}" font-size="28" font-weight="700">AI 写得越自信</text>
-      <text x="772" y="374" fill="${escapeXml(theme.sbaiText)}" font-size="42" font-weight="800">人越接近发疯</text>
+      <text x="772" y="336" fill="${escapeXml(theme.sbaiText)}" font-size="28" font-weight="700">${escapeXml(t.report.sbaiKicker)}</text>
+      <text x="772" y="374" fill="${escapeXml(theme.sbaiText)}" font-size="42" font-weight="800">${escapeXml(t.report.sbaiMantra)}</text>
       <text x="772" y="426" fill="${escapeXml(theme.sbaiMuted)}" font-size="20">${escapeXml(sbaiStatus.copy)}</text>
 
-      ${metricTile(72, "聊天输入", report.messageCount.toLocaleString("zh-CN"))}
-      ${metricTile(276, "脏话次数", report.profanityCount.toLocaleString("zh-CN"))}
-      ${metricTile(480, "总 Tokens", report.tokens.toLocaleString("zh-CN"))}
+      ${metricTile(72, t.report.messageCount, report.messageCount.toLocaleString(numberLocale))}
+      ${metricTile(276, t.report.profanityCount, report.profanityCount.toLocaleString(numberLocale))}
+      ${metricTile(480, t.report.tokens, report.tokens.toLocaleString(numberLocale))}
 
-      <text x="72" y="584" fill="${escapeXml(theme.muted)}" font-size="20">高频词条: ${escapeXml(words)}</text>
-      <text x="1114" y="584" text-anchor="end" fill="${escapeXml(theme.muted)}" font-size="20">提交时间 ${escapeXml(new Date(profile.submittedAt).toLocaleString("zh-CN"))}</text>
+      <text x="72" y="584" fill="${escapeXml(theme.muted)}" font-size="20">${escapeXml(locale === "zh-CN" ? `高频词条: ${words}` : `Top terms: ${words}`)}</text>
+      <text x="1114" y="584" text-anchor="end" fill="${escapeXml(theme.muted)}" font-size="20">${escapeXml(locale === "zh-CN" ? `提交时间 ${new Date(profile.submittedAt).toLocaleString(numberLocale)}` : `Submitted ${new Date(profile.submittedAt).toLocaleString(numberLocale)}`)}</text>
       <defs>
         <linearGradient id="heroFade" x1="56" y1="56" x2="710" y2="294" gradientUnits="userSpaceOnUse">
           <stop stop-color="${escapeXml(theme.heroFrom)}" />

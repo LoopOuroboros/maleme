@@ -5,6 +5,7 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import LeaderboardHome from "../components/LeaderboardHome.astro";
 import TarotHome from "../components/TarotHome.astro";
 import { getLeaderboardSummary, hasDatabaseBinding, listLeaderboard } from "../lib/db";
+import { getI18n, getNumberLocale, resolveLocale } from "../lib/i18n";
 import { listTarotCards } from "../lib/tarot";
 import type { LeaderboardSortDirection, LeaderboardSortKey } from "../lib/types";
 
@@ -17,6 +18,9 @@ const submittedRankValue = Number(Astro.url.searchParams.get("rank"));
 const submittedRank = Number.isFinite(submittedRankValue) && submittedRankValue > 0
   ? Math.trunc(submittedRankValue)
   : 0;
+const locale = resolveLocale(Astro);
+const t = getI18n(locale);
+const numberLocale = getNumberLocale(locale);
 const sortKey: LeaderboardSortKey =
   sortValue === "tokens" || sortValue === "sbai" || sortValue === "updatedAt"
     ? sortValue
@@ -36,20 +40,20 @@ const summary = databaseReady
     };
 
 const stats = [
-  { label: "Participants", value: summary.participants.toLocaleString("en-US"), tone: "red" as const },
-  { label: "Average SBAI", value: summary.averageSbai.toFixed(3), tone: "teal" as const },
-  { label: "Uploaded Tokens", value: summary.totalTokens.toLocaleString("en-US"), tone: "gold" as const },
+  { label: t.leaderboard.stats.participants, value: summary.participants.toLocaleString(numberLocale), tone: "red" as const },
+  { label: t.leaderboard.stats.averageSbai, value: summary.averageSbai.toFixed(3), tone: "teal" as const },
+  { label: t.leaderboard.stats.uploadedTokens, value: summary.totalTokens.toLocaleString(numberLocale), tone: "gold" as const },
 ];
 ---
 
 <BaseLayout
-  title={isTarotHost ? "AI Tarot" : "maleme leaderboard"}
-  description={isTarotHost ? "AI Tarot of bad agent habits" : "maleme leaderboard"}
-  lang="zh-CN"
+  title={isTarotHost ? t.tarot.pageTitle : t.leaderboard.pageTitle}
+  description={isTarotHost ? t.tarot.pageDescription : t.leaderboard.pageDescription}
+  lang={locale}
 >
   {
     isTarotHost ? (
-      <TarotHome cards={tarotCards} />
+      <TarotHome cards={tarotCards} locale={locale} />
     ) : (
       <LeaderboardHome
         entries={entries}
@@ -58,6 +62,7 @@ const stats = [
         stats={stats}
         submittedState={submittedState}
         submittedRank={submittedRank}
+        locale={locale}
       />
     )
   }

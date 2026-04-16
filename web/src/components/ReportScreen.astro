@@ -1,5 +1,6 @@
 ---
 import type { LeaderboardReportPayload } from "../lib/types";
+import { getI18n, type Locale } from "../lib/i18n";
 
 type Props = {
   headlineHtml: string;
@@ -11,6 +12,7 @@ type Props = {
   fireworksPaletteJson: string;
   dailyPointsJson: string;
   wordCloudJson: string;
+  locale: Locale;
 };
 
 const {
@@ -23,7 +25,9 @@ const {
   fireworksPaletteJson,
   dailyPointsJson,
   wordCloudJson,
+  locale,
 } = Astro.props;
+const t = getI18n(locale);
 ---
 
 <main
@@ -40,15 +44,15 @@ const {
           <h1 set:html={headlineHtml}></h1>
           <div class="meta">
             <div class="meta-item">
-              <div class="meta-label">聊天输入</div>
+              <div class="meta-label">{t.report.messageCount}</div>
               <div class="meta-value number-roll" data-target-number={report.messageCount} data-decimals="0">0</div>
             </div>
             <div class="meta-item">
-              <div class="meta-label">脏话次数</div>
+              <div class="meta-label">{t.report.profanityCount}</div>
               <div class="meta-value number-roll" data-target-number={report.profanityCount} data-decimals="0">0</div>
             </div>
             <div class="meta-item">
-              <div class="meta-label">总 Tokens</div>
+              <div class="meta-label">{t.report.tokens}</div>
               <div class="meta-value number-roll" data-target-number={report.tokens} data-decimals="0">0</div>
             </div>
           </div>
@@ -59,50 +63,50 @@ const {
       </div>
       <div class="panel sbai-card">
         <div class="sbai-header">
-          <div class="sbai-label">SBAI 指数</div>
+          <div class="sbai-label">{t.report.sbaiLabel}</div>
           <div class="sbai-alert">{sbaiState}</div>
         </div>
-        <div class="sbai-kicker">AI 写得越自信</div>
+        <div class="sbai-kicker">{t.report.sbaiKicker}</div>
         <div class="sbai-value-wrap">
           <div class="sbai-value number-roll" data-target-number={report.sbai.toFixed(2)} data-decimals="2" data-display="0.00">0.00</div>
         </div>
-        <div class="sbai-mantra">人越接近发疯</div>
+        <div class="sbai-mantra">{t.report.sbaiMantra}</div>
         <div class="sbai-copy">{sbaiCopy}</div>
         <div class="sbai-divider"></div>
-        <div class="sbai-chant">乱写 / 破防 / 暴走</div>
-        <div class="sbai-footnote">每千万 tokens 的骂人次数</div>
+        <div class="sbai-chant">{t.report.sbaiChant}</div>
+        <div class="sbai-footnote">{t.report.sbaiFootnote}</div>
       </div>
     </section>
 
     <section class="layout">
       <div class="panel viz-panel chart-panel">
-        <h2>你这一天骂了 AI 多少次！</h2>
+        <h2>{t.report.dailyTitle}</h2>
         <div class="chart-wrap">
           {
             report.dailyCounts.length > 0 ? (
               <>
-                <div id="daily-chart" class="chart-host" data-points={dailyPointsJson} aria-label="daily profanity chart"></div>
-                <div id="daily-chart-fallback" class="chart-fallback">折线图加载失败。</div>
+                <div id="daily-chart" class="chart-host" data-points={dailyPointsJson} aria-label={t.report.dailyChartAria}></div>
+                <div id="daily-chart-fallback" class="chart-fallback">{t.report.dailyChartFallback}</div>
               </>
             ) : (
-              <div class="empty">没有聊天输入数据。</div>
+              <div class="empty">{t.report.noDailyData}</div>
             )
           }
         </div>
       </div>
 
       <div class="panel viz-panel cloud-panel">
-        <h2>你最喜欢这么骂！</h2>
+        <h2>{t.report.cloudTitle}</h2>
         {
           report.wordCounts.length > 0 ? (
             <div class="cloud">
-              <div id="word-cloud-viewport" class="cloud-viewport" aria-label="高频脏话词云，支持缩放和拖拽">
+              <div id="word-cloud-viewport" class="cloud-viewport" aria-label={t.report.cloudAria}>
                 <canvas id="word-cloud-scene" class="cloud-scene" data-words={wordCloudJson}></canvas>
-                <div id="word-cloud-fallback" class="cloud-fallback">3D 词云加载失败。</div>
+                <div id="word-cloud-fallback" class="cloud-fallback">{t.report.cloudFallback}</div>
               </div>
             </div>
           ) : (
-            <div class="empty">没有检测到脏话。</div>
+            <div class="empty">{t.report.noProfanity}</div>
           )
         }
       </div>

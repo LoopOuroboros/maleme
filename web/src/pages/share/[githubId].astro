@@ -5,10 +5,13 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
 import ReportScreen from "../../components/ReportScreen.astro";
 import { getAppUrl } from "../../lib/auth";
 import { getLeaderboardProfileByGithubId, hasDatabaseBinding } from "../../lib/db";
+import { getI18n, resolveLocale } from "../../lib/i18n";
 import { getReportHeadlineHtml, getReportTheme, getSbaiStatus } from "../../lib/report";
 import { buildShareDescription, buildShareTitle, buildTwitterIntentUrl, getSharePath } from "../../lib/share";
 
 const githubId = Number(Astro.params.githubId || "");
+const locale = resolveLocale(Astro);
+const t = getI18n(locale);
 const databaseReady = hasDatabaseBinding();
 const profile = databaseReady && Number.isInteger(githubId) && githubId > 0
   ? await getLeaderboardProfileByGithubId(githubId)
@@ -20,14 +23,16 @@ if (!profile) {
 
 const report = profile?.report;
 const theme = getReportTheme(report?.sbai ?? 0);
-const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
+const sbaiStatus = getSbaiStatus(report?.sbai ?? 0, locale);
 const appUrl = getAppUrl(Astro.url);
 const sharePath = profile ? getSharePath(profile.githubId) : "/";
 const shareUrl = new URL(sharePath, appUrl).toString();
 const shareImageUrl = profile?.avatarUrl ?? "";
-const title = profile ? `${buildShareTitle(profile)} | maleme leaderboard` : "maleme leaderboard";
-const description = profile ? buildShareDescription(profile) : "maleme leaderboard";
-const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
+const title = profile ? `${buildShareTitle(profile, locale)} | ${t.leaderboard.pageTitle}` : t.leaderboard.pageTitle;
+const description = profile ? buildShareDescription(profile, locale) : t.leaderboard.pageDescription;
+const headlineHtml = report
+  ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount, locale)
+  : t.leaderboard.pageTitle;
 const twitterShareUrl = profile ? buildTwitterIntentUrl(description, shareUrl) : "";
 const themeStyle = [
   `--bg:${theme.bg}`,
@@ -68,7 +73,7 @@ const dailyPointsJson = JSON.stringify(report?.dailyCounts ?? []).replaceAll("</
 const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map((item) => [item.term, item.count])).replaceAll("</", "<\\/");
 ---
 
-<BaseLayout title={title} description={description} lang="zh-CN">
+<BaseLayout title={title} description={description} lang={locale}>
   <Fragment slot="head">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -110,10 +115,11 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
         fireworksPaletteJson={fireworksPaletteJson}
         dailyPointsJson={dailyPointsJson}
         wordCloudJson={wordCloudJson}
+        locale={locale}
       >
         <div slot="actions" class="share-actions">
-          <a href="/" class="submit-button ghost-button">Back to Leaderboard</a>
-          <a href={`/u/${encodeURIComponent(profile.login)}`} class="submit-button ghost-button">Full Profile</a>
+          <a href="/" class="submit-button ghost-button">{t.common.actions.backToLeaderboard}</a>
+          <a href={`/u/${encodeURIComponent(profile.login)}`} class="submit-button ghost-button">{t.common.actions.fullProfile}</a>
           <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="button-logo">
               <path
@@ -121,24 +127,26 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
                 d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
               />
             </svg>
-            <span>Share on X</span>
+            <span>{t.common.actions.shareOnX}</span>
           </a>
           <button
             type="button"
             class="submit-button"
             id="share-button"
             data-share-url={shareUrl}
+            data-copy-label={t.common.actions.copyShareLink}
+            data-copied-label={t.common.actions.copied}
           >
-            Copy Share Link
+            {t.common.actions.copyShareLink}
           </button>
         </div>
       </ReportScreen>
     ) : (
       <main class="missing-shell">
         <section class="surface missing-card">
-          <h1 class="missing-title">没有找到这个用户的分享面板</h1>
-          <p class="missing-copy">这个用户还没有提交记录，或者分享链接对应的用户 ID 已失效。</p>
-          <a href="/" class="missing-link">回到排行榜</a>
+          <h1 class="missing-title">{t.common.missing.shareTitle}</h1>
+          <p class="missing-copy">{t.common.missing.shareCopy}</p>
+          <a href="/" class="missing-link">{t.common.missing.backToHome}</a>
         </section>
       </main>
     )
@@ -149,15 +157,17 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
   const shareButton = document.getElementById("share-button");
   shareButton?.addEventListener("click", async () => {
     const shareUrl = shareButton.dataset.shareUrl;
+    const copyLabel = shareButton.dataset.copyLabel || shareButton.textContent || "";
+    const copiedLabel = shareButton.dataset.copiedLabel || copyLabel;
     if (!shareUrl) {
       return;
     }
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);
-        shareButton.textContent = "Copied";
+        shareButton.textContent = copiedLabel;
         window.setTimeout(() => {
-          shareButton.textContent = "Copy Share Link";
+          shareButton.textContent = copyLabel;
         }, 1800);
         return;
       }
@@ -170,9 +180,9 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
       textarea.select();
       document.execCommand("copy");
       document.body.removeChild(textarea);
-      shareButton.textContent = "Copied";
+      shareButton.textContent = copiedLabel;
       window.setTimeout(() => {
-        shareButton.textContent = "Copy Share Link";
+        shareButton.textContent = copyLabel;
       }, 1800);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {

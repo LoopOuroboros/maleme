@@ -5,10 +5,13 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
 import ReportScreen from "../../components/ReportScreen.astro";
 import { getAppUrl } from "../../lib/auth";
 import { getLeaderboardProfile, hasDatabaseBinding } from "../../lib/db";
+import { getI18n, resolveLocale } from "../../lib/i18n";
 import { getReportHeadlineHtml, getReportTheme, getSbaiStatus } from "../../lib/report";
 import { buildTwitterIntentUrl, getSharePath } from "../../lib/share";
 
 const login = Astro.params.login || "";
+const locale = resolveLocale(Astro);
+const t = getI18n(locale);
 const databaseReady = hasDatabaseBinding();
 const profile = databaseReady && login ? await getLeaderboardProfile(login) : null;
 
@@ -18,14 +21,22 @@ if (!profile) {
 
 const report = profile?.report;
 const theme = getReportTheme(report?.sbai ?? 0);
-const sbaiStatus = getSbaiStatus(report?.sbai ?? 0);
-const title = profile ? `${profile.displayName} - maleme leaderboard` : "maleme leaderboard";
-const description = profile ? `${profile.displayName}'s maleme profanity report` : "maleme leaderboard";
-const headlineHtml = report ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount) : "maleme leaderboard";
+const sbaiStatus = getSbaiStatus(report?.sbai ?? 0, locale);
+const title = profile ? `${profile.displayName} - ${t.leaderboard.pageTitle}` : t.leaderboard.pageTitle;
+const description = profile
+  ? locale === "zh-CN"
+    ? `${profile.displayName} 的 maleme 报告`
+    : `${profile.displayName}'s maleme profanity report`
+  : t.leaderboard.pageDescription;
+const headlineHtml = report
+  ? getReportHeadlineHtml(report.rangeStart, report.rangeEnd, report.profanityCount, locale)
+  : t.leaderboard.pageTitle;
 const shareUrl = profile ? new URL(getSharePath(profile.githubId), getAppUrl(Astro.url)).toString() : "";
 const twitterShareUrl = profile
   ? buildTwitterIntentUrl(
-    `${profile.displayName} is ranked #${profile.rank} on the maleme leaderboard with SBAI ${report?.sbai.toFixed(2) ?? "0.00"}`,
+    locale === "zh-CN"
+      ? `${profile.displayName} 在 maleme 排行榜排第 ${profile.rank} 名，SBAI ${report?.sbai.toFixed(3) ?? "0.000"}`
+      : `${profile.displayName} is ranked #${profile.rank} on the maleme leaderboard with SBAI ${report?.sbai.toFixed(3) ?? "0.000"}`,
     shareUrl,
   )
   : "";
@@ -68,7 +79,7 @@ const dailyPointsJson = JSON.stringify(report?.dailyCounts ?? []).replaceAll("</
 const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map((item) => [item.term, item.count])).replaceAll("</", "<\\/");
 ---
 
-<BaseLayout title={title} description={description} lang="zh-CN">
+<BaseLayout title={title} description={description} lang={locale}>
   <Fragment slot="head">
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -91,9 +102,10 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
         fireworksPaletteJson={fireworksPaletteJson}
         dailyPointsJson={dailyPointsJson}
         wordCloudJson={wordCloudJson}
+        locale={locale}
       >
         <div slot="actions" class="share-actions">
-          <a href="/" class="submit-button ghost-button">Back to Leaderboard</a>
+          <a href="/" class="submit-button ghost-button">{t.common.actions.backToLeaderboard}</a>
           <a href={profile.profileUrl} target="_blank" rel="noreferrer" class="submit-button github-button">
             <svg viewBox="0 0 16 16" aria-hidden="true" class="button-logo">
               <path
@@ -107,7 +119,7 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
                 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"
               />
             </svg>
-            <span>GitHub Profile</span>
+            <span>{t.common.actions.githubProfile}</span>
           </a>
           <a href={twitterShareUrl} target="_blank" rel="noreferrer" class="submit-button twitter-button">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="button-logo">
@@ -116,24 +128,26 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
                 d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
               />
             </svg>
-            <span>Share on X</span>
+            <span>{t.common.actions.shareOnX}</span>
           </a>
           <button
             type="button"
             class="submit-button"
             id="share-button"
             data-share-url={shareUrl}
+            data-copy-label={t.common.actions.copyShareLink}
+            data-copied-label={t.common.actions.copied}
           >
-            Copy Share Link
+            {t.common.actions.copyShareLink}
           </button>
         </div>
       </ReportScreen>
     ) : (
       <main class="missing-shell">
         <section class="surface missing-card">
-          <h1 class="missing-title">没有找到这个用户的报告</h1>
-          <p class="missing-copy">可能还没提交到 leaderboard，或者登录名已经发生变化。</p>
-          <a href="/" class="missing-link">回到排行榜</a>
+          <h1 class="missing-title">{t.common.missing.userReportTitle}</h1>
+          <p class="missing-copy">{t.common.missing.userReportCopy}</p>
+          <a href="/" class="missing-link">{t.common.missing.backToHome}</a>
         </section>
       </main>
     )
@@ -145,6 +159,8 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
 
   async function copyShareUrl(button) {
     const shareUrl = button?.dataset.shareUrl;
+    const copyLabel = button?.dataset.copyLabel || button?.textContent || "";
+    const copiedLabel = button?.dataset.copiedLabel || copyLabel;
     if (!shareUrl) {
       return false;
     }
@@ -164,10 +180,10 @@ const wordCloudJson = JSON.stringify((report?.wordCounts ?? []).slice(0, 32).map
         document.body.removeChild(textarea);
       }
 
-      const originalText = button.textContent;
-      button.textContent = "Copied";
+      const originalText = button.textContent || copyLabel;
+      button.textContent = copiedLabel;
       window.setTimeout(() => {
-        button.textContent = originalText;
+        button.textContent = originalText || copyLabel;
       }, 1800);
       return true;
     } catch (error) {

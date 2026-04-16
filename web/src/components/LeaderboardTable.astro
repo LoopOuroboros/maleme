@@ -1,6 +1,7 @@
 ---
 import { Image } from "astro:assets";
 import { buildShareButtonText, getSharePath } from "../lib/share";
+import { getI18n, getNumberLocale, type Locale } from "../lib/i18n";
 import type {
   LeaderboardEntry,
   LeaderboardSortDirection,
@@ -11,16 +12,14 @@ type Props = {
   entries: LeaderboardEntry[];
   sortKey: LeaderboardSortKey;
   sortDirection: LeaderboardSortDirection;
+  locale: Locale;
 };
 
-const { entries, sortKey, sortDirection } = Astro.props;
+const { entries, sortKey, sortDirection, locale } = Astro.props;
+const t = getI18n(locale);
+const numberLocale = getNumberLocale(locale);
 
-const sortLabels: Record<LeaderboardSortKey, string> = {
-  profanityCount: "Times Cursed",
-  tokens: "Tokens",
-  sbai: "SBAI",
-  updatedAt: "Updated",
-};
+const sortLabels: Record<LeaderboardSortKey, string> = t.leaderboard.sortLabels;
 
 const sortKeys: LeaderboardSortKey[] = ["profanityCount", "tokens", "sbai", "updatedAt"];
 const directionItems: LeaderboardSortDirection[] = ["desc", "asc"];
@@ -36,7 +35,7 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
 
 <section class="surface leaderboard">
   <div class="leaderboard-header">
-    <h2 class="section-title">Leaderboard</h2>
+    <h2 class="section-title">{t.leaderboard.sectionTitle}</h2>
     <div class="leaderboard-tools">
       <div class="tool-group">
         {
@@ -57,7 +56,7 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
               href={hrefFor(sortKey, item)}
               class:list={["tool-chip", sortDirection === item && "is-active"]}
             >
-              {item === "desc" ? "Descending" : "Ascending"}
+              {t.leaderboard.directionLabels[item]}
             </a>
           ))
         }
@@ -69,13 +68,13 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
     <table>
       <thead>
         <tr>
-          <th>Rank</th>
-          <th>Account</th>
-          <th>Times Cursed</th>
-          <th>Tokens</th>
-          <th>SBAI</th>
-          <th>Updated</th>
-          <th>Share</th>
+          <th>{t.leaderboard.columns.rank}</th>
+          <th>{t.leaderboard.columns.account}</th>
+          <th>{t.leaderboard.columns.profanityCount}</th>
+          <th>{t.leaderboard.columns.tokens}</th>
+          <th>{t.leaderboard.columns.sbai}</th>
+          <th>{t.leaderboard.columns.updatedAt}</th>
+          <th>{t.leaderboard.columns.share}</th>
         </tr>
       </thead>
       <tbody>
@@ -83,7 +82,7 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
           entries.map((entry) => {
             const profileHref = `/u/${encodeURIComponent(entry.login)}`;
             const shareHref = getSharePath(entry.githubId);
-            const shareText = buildShareButtonText(entry);
+            const shareText = buildShareButtonText(entry, locale);
 
             return (
               <tr>
@@ -103,17 +102,17 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
                     </span>
                   </a>
                 </td>
-                <td>{entry.profanityCount.toLocaleString("en-US")}</td>
-                <td>{entry.tokens.toLocaleString("en-US")}</td>
+                <td>{entry.profanityCount.toLocaleString(numberLocale)}</td>
+                <td>{entry.tokens.toLocaleString(numberLocale)}</td>
                 <td class="change">{entry.sbai.toFixed(3)}</td>
-                <td>{new Date(entry.updatedAt).toLocaleDateString("en-US")}</td>
+                <td>{new Date(entry.updatedAt).toLocaleDateString(numberLocale)}</td>
                 <td class="share-cell">
                   <button
                     type="button"
                     class="share-button"
                     data-share-url={shareHref}
                     data-share-text={shareText}
-                    aria-label={`Share ${entry.displayName}'s leaderboard card on X`}
+                    aria-label={`${entry.displayName}: ${t.leaderboard.shareAriaLabel}`}
                   >
                     <svg viewBox="0 0 24 24" aria-hidden="true" class="share-button-icon">
                       <path
@@ -121,7 +120,7 @@ function hrefFor(nextSortKey: LeaderboardSortKey, nextDirection: LeaderboardSort
                         d="M18.244 2H21l-6.04 6.904L22 22h-5.52l-4.323-6.924L6.1 22H3.34l6.46-7.386L2 2h5.66l3.908 6.276zm-.968 18h1.527L6.83 3.894H5.192z"
                       />
                     </svg>
-                    <span>Share on X</span>
+                    <span>{t.leaderboard.shareOnX}</span>
                   </button>
                 </td>
               </tr>
